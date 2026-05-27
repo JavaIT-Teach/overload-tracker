@@ -1,0 +1,1706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Insulin Response: The Story of a Balanced Meal</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+  }
+  #mainCanvas {
+    display: block;
+    position: absolute;
+    top: 0; left: 0;
+  }
+  #uiOverlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  #legend {
+    position: absolute;
+    top: 16px; right: 16px;
+    background: rgba(0,0,10,0.82);
+    border: 1px solid rgba(80,160,255,0.3);
+    border-radius: 10px;
+    padding: 12px 16px;
+    min-width: 185px;
+    pointer-events: all;
+  }
+  #legend h3 {
+    color: #a8d8ff;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    border-bottom: 1px solid rgba(80,160,255,0.2);
+    padding-bottom: 6px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 6px;
+  }
+  .legend-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 6px currentColor;
+  }
+  .legend-item span {
+    color: #cde;
+    font-size: 11px;
+  }
+  #caption {
+    position: absolute;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 700px;
+    width: 90%;
+    text-align: center;
+  }
+  #captionTitle {
+    color: #7dd3fc;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    text-shadow: 0 0 20px #3b82f6;
+    margin-bottom: 6px;
+    transition: opacity 0.5s;
+  }
+  #captionText {
+    color: #e2f0ff;
+    font-size: 13px;
+    line-height: 1.6;
+    background: rgba(0,5,20,0.7);
+    border-radius: 8px;
+    padding: 10px 16px;
+    border: 1px solid rgba(100,160,255,0.15);
+    transition: opacity 0.5s;
+  }
+  #sceneIndicator {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 6px;
+    pointer-events: all;
+  }
+  .scene-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: rgba(100,160,255,0.3);
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+  .scene-dot.active { background: #60a5fa; box-shadow: 0 0 8px #3b82f6; }
+  #controls {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    display: flex;
+    gap: 8px;
+    pointer-events: all;
+  }
+  .ctrl-btn {
+    background: rgba(30,60,120,0.7);
+    border: 1px solid rgba(100,160,255,0.3);
+    color: #90c8ff;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .ctrl-btn:hover { background: rgba(60,100,200,0.7); }
+  #title-screen {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(0,10,40,1) 0%, #000 70%);
+    z-index: 10;
+    pointer-events: all;
+    transition: opacity 1s;
+  }
+  #title-screen h1 {
+    color: #60a5fa;
+    font-size: clamp(22px,4vw,42px);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    text-shadow: 0 0 40px #3b82f6, 0 0 80px #1d4ed8;
+    margin-bottom: 12px;
+    text-align: center;
+    padding: 0 20px;
+  }
+  #title-screen p {
+    color: #94a3b8;
+    font-size: clamp(12px,2vw,16px);
+    letter-spacing: 2px;
+    margin-bottom: 40px;
+    text-align: center;
+    padding: 0 20px;
+  }
+  #startBtn {
+    background: linear-gradient(135deg, #1d4ed8, #0ea5e9);
+    border: none;
+    color: #fff;
+    padding: 14px 40px;
+    border-radius: 30px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    cursor: pointer;
+    box-shadow: 0 0 30px rgba(59,130,246,0.5);
+    transition: all 0.3s;
+    text-transform: uppercase;
+  }
+  #startBtn:hover { transform: scale(1.05); box-shadow: 0 0 50px rgba(59,130,246,0.8); }
+  #glucoseGraph {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    background: rgba(0,5,20,0.8);
+    border: 1px solid rgba(255,140,0,0.3);
+    border-radius: 8px;
+    padding: 8px;
+    display: none;
+  }
+  #glucoseGraph h4 {
+    color: #fb923c;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  #glucoseCanvas { display: block; }
+</style>
+</head>
+<body>
+
+<canvas id="mainCanvas"></canvas>
+
+<div id="uiOverlay">
+  <div id="legend">
+    <h3>Molecule Key</h3>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#38bdf8;color:#38bdf8;"></div>
+      <span>Insulin (hormone)</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#fb923c;color:#fb923c;"></div>
+      <span>Glucose (sugar)</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#4ade80;color:#4ade80;"></div>
+      <span>Amino Acids</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#facc15;color:#facc15;"></div>
+      <span>Fatty Acids</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#a78bfa;color:#a78bfa;"></div>
+      <span>Ketones</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#f87171;color:#f87171;"></div>
+      <span>Cortisol</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:#e879f9;color:#e879f9;"></div>
+      <span>Glycogen</span>
+    </div>
+  </div>
+
+  <div id="glucoseGraph">
+    <h4>Blood Glucose Level</h4>
+    <canvas id="glucoseCanvas" width="180" height="70"></canvas>
+  </div>
+
+  <div id="caption">
+    <div id="captionTitle"></div>
+    <div id="captionText"></div>
+  </div>
+
+  <div id="sceneIndicator"></div>
+
+  <div id="controls">
+    <button class="ctrl-btn" id="prevBtn">&#9664; Prev</button>
+    <button class="ctrl-btn" id="pauseBtn">&#9646;&#9646; Pause</button>
+    <button class="ctrl-btn" id="nextBtn">Next &#9654;</button>
+  </div>
+</div>
+
+<div id="title-screen">
+  <h1>Insulin &amp; The Balanced Meal</h1>
+  <p>A Cinematic Medical Animation &bull; Interactive Educational Documentary</p>
+  <button id="startBtn">BEGIN ANIMATION</button>
+</div>
+
+<script>
+// ─── CANVAS SETUP ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+const gcCanvas = document.getElementById('glucoseCanvas');
+const gcCtx = gcCanvas.getContext('2d');
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── COLOR PALETTE ───────────────────────────────────────────────────────────
+const C = {
+  insulin:   '#38bdf8',
+  glucose:   '#fb923c',
+  amino:     '#4ade80',
+  fat:       '#facc15',
+  ketone:    '#a78bfa',
+  cortisol:  '#f87171',
+  glycogen:  '#e879f9',
+  blood:     '#b91c1c',
+  bloodDark: '#7f1d1d',
+  organ:     '#1e3a5f',
+  organGlow: '#3b82f6',
+  bg:        '#000510',
+};
+
+// ─── UTILITY ─────────────────────────────────────────────────────────────────
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, mn, mx) { return Math.max(mn, Math.min(mx, v)); }
+function rand(mn, mx) { return mn + Math.random() * (mx - mn); }
+function randInt(mn, mx) { return Math.floor(rand(mn, mx + 1)); }
+function easeInOut(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+function easeOut(t) { return 1 - Math.pow(1-t, 3); }
+
+function glow(color, blur) {
+  ctx.shadowColor = color;
+  ctx.shadowBlur = blur;
+}
+function noGlow() {
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+}
+
+// ─── PARTICLE SYSTEM ─────────────────────────────────────────────────────────
+class Particle {
+  constructor(x, y, type, opts = {}) {
+    this.x = x; this.y = y;
+    this.type = type;
+    this.vx = opts.vx || rand(-0.5, 0.5);
+    this.vy = opts.vy || rand(-0.5, 0.5);
+    this.life = 1;
+    this.decay = opts.decay || rand(0.003, 0.008);
+    this.size = opts.size || rand(3, 7);
+    this.pulse = Math.random() * Math.PI * 2;
+    this.pathFn = opts.pathFn || null;
+    this.pathT = 0;
+    this.pathSpeed = opts.pathSpeed || 0.004;
+    this.label = opts.label || null;
+    this.labelShown = false;
+    this.persistent = opts.persistent || false;
+    if (this.persistent) this.decay = 0;
+  }
+
+  update() {
+    this.pulse += 0.08;
+    if (this.pathFn) {
+      this.pathT += this.pathSpeed;
+      if (this.pathT <= 1) {
+        const p = this.pathFn(this.pathT);
+        this.x = p.x; this.y = p.y;
+      } else {
+        this.life -= this.decay * 3;
+      }
+    } else {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.life -= this.decay;
+    }
+  }
+
+  draw() {
+    if (this.life <= 0) return;
+    const alpha = clamp(this.life, 0, 1);
+    const ps = this.size + Math.sin(this.pulse) * 1.5;
+    const color = C[this.type] || '#fff';
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    glow(color, 12);
+
+    if (this.type === 'glucose') {
+      this._drawHexagon(ps, color);
+    } else if (this.type === 'fat') {
+      this._drawChain(ps, color);
+    } else if (this.type === 'insulin') {
+      this._drawInsulin(ps, color);
+    } else {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, ps, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+
+    if (this.label && !this.labelShown) {
+      this.labelShown = true;
+    }
+    if (this.label && alpha > 0.5) {
+      noGlow();
+      ctx.fillStyle = `rgba(255,255,255,${alpha * 0.9})`;
+      ctx.font = 'bold 10px Arial';
+      ctx.fillText(this.label, this.x + ps + 4, this.y - ps - 2);
+    }
+    noGlow();
+    ctx.restore();
+  }
+
+  _drawHexagon(r, color) {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2 - Math.PI / 6;
+      const hx = this.x + r * Math.cos(angle);
+      const hy = this.y + r * Math.sin(angle);
+      i === 0 ? ctx.moveTo(hx, hy) : ctx.lineTo(hx, hy);
+    }
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+
+  _drawChain(r, color) {
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.arc(this.x + (i - 1) * r * 0.9, this.y, r * 0.55, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.moveTo(this.x - r * 0.9, this.y);
+    ctx.lineTo(this.x + r * 0.9, this.y);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  _drawInsulin(r, color) {
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, r * 0.5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fill();
+  }
+
+  isDead() { return this.life <= 0; }
+}
+
+// ─── SCENE SYSTEM ────────────────────────────────────────────────────────────
+const SCENES = [
+  { title: 'EATING — THE JOURNEY BEGINS',
+    caption: 'A person sits down to a balanced mixed meal containing carbohydrates (rice, bread), proteins (chicken, legumes), and healthy fats (olive oil, nuts). This triggers a cascade of metabolic events throughout the body.' },
+  { title: 'ORAL DIGESTION',
+    caption: 'Chewing breaks food into smaller pieces. Salivary amylase begins hydrolysing starch into maltose. Mastication increases surface area for enzyme action — digestion begins the moment food enters the mouth.' },
+  { title: 'ESOPHAGUS & STOMACH',
+    caption: 'Peristaltic contractions propel food down the esophagus. In the stomach, hydrochloric acid (pH 1.5–2) and pepsin denature proteins, while churning creates chyme — a semi-liquid mixture ready for the small intestine.' },
+  { title: 'SMALL INTESTINE — ABSORPTION',
+    caption: 'Pancreatic enzymes (amylase, lipase, proteases) complete digestion. The brush border of microvilli vastly increases absorptive surface area. Glucose is actively transported into enterocytes via SGLT-1 transporters. Amino acids and fatty acids follow.' },
+  { title: 'NUTRIENTS ENTER THE BLOODSTREAM',
+    caption: 'Glucose and amino acids move through capillary walls into portal blood, heading to the liver. Fatty acids are packaged into chylomicrons and enter the lymphatic system via lacteals before reaching the bloodstream.' },
+  { title: 'BLOOD GLUCOSE RISES',
+    caption: 'Within 15–30 minutes of eating, blood glucose begins to rise from a fasting level of ~80 mg/dL toward a postprandial peak of 120–140 mg/dL. This rise is detected by the pancreatic beta cells.' },
+  { title: 'PANCREAS DETECTS GLUCOSE SURGE',
+    caption: 'Beta cells in the Islets of Langerhans contain GLUT-2 receptors that sense elevated blood glucose. As glucose enters beta cells, it is metabolised, ATP rises, K⁺ channels close, the cell depolarises, and calcium influx triggers insulin secretion.' },
+  { title: 'INSULIN RELEASED INTO BLOODSTREAM',
+    caption: 'Insulin granules fuse with the beta cell membrane and release insulin molecules into surrounding capillaries. Insulin enters the portal circulation, reaching the liver first, then the systemic circulation — every cell in the body.' },
+  { title: 'INSULIN BINDS MUSCLE CELLS',
+    caption: 'Insulin binds to tyrosine kinase receptors on skeletal muscle cells. This activates an intracellular signalling cascade (IRS-1 → PI3K → AKT) that causes GLUT-4 transporters to translocate from intracellular vesicles to the cell membrane — opening the door to glucose.' },
+  { title: 'GLUCOSE ENTERS MUSCLE CELLS',
+    caption: 'GLUT-4 channels allow glucose to flood into muscle cells. Glucose is immediately phosphorylated by hexokinase (trapping it inside the cell), then either oxidised via glycolysis for immediate ATP energy, or polymerised into glycogen for later storage.' },
+  { title: 'LIVER — GLUCOSE & GLYCOGEN STORAGE',
+    caption: 'The liver receives insulin-rich portal blood first. Hepatocytes suppress gluconeogenesis (glucose production), activate glycogen synthase, and convert excess glucose into glycogen. The liver acts as the body\'s primary glucose buffer, storing ~100g of glycogen.' },
+  { title: 'ADIPOSE TISSUE — FAT STORAGE',
+    caption: 'Insulin is a powerful anti-lipolytic hormone. In adipocytes, insulin stimulates GLUT-4 uptake, activates lipoprotein lipase (breaking down chylomicrons), and suppresses hormone-sensitive lipase — promoting triglyceride synthesis and fat storage.' },
+  { title: 'AMINO ACIDS — MUSCLE REPAIR & GROWTH',
+    caption: 'Insulin and amino acids together stimulate mTORC1 signalling in muscle cells, driving protein synthesis. Amino acids are incorporated into new muscle proteins for repair and growth. Insulin also promotes amino acid uptake into cells via specific transporters.' },
+  { title: 'BLOOD GLUCOSE NORMALISES',
+    caption: 'As cells take up glucose, blood sugar gradually falls back toward baseline (~80–100 mg/dL). Insulin secretion slows as beta cells sense normalising glucose levels. The body returns to metabolic homeostasis — the elegant balance maintained by this hormonal system.' },
+  { title: 'SYSTEM SUMMARY — METABOLIC HARMONY',
+    caption: 'In a healthy organism, this entire process — from the first bite to restored blood glucose — takes 2–3 hours. Insulin is the master metabolic hormone: orchestrating glucose storage, protein synthesis, and fat deposition across every major organ system.' },
+];
+
+let currentScene = 0;
+let sceneTime = 0;
+let paused = false;
+let particles = [];
+let animFrame;
+let started = false;
+let glucoseData = [];
+let globalTime = 0;
+
+// ─── BLOOD VESSEL PATHS ──────────────────────────────────────────────────────
+function vesselPath(t, cx, cy, rx, ry, startAngle, endAngle) {
+  const angle = lerp(startAngle, endAngle, t);
+  return {
+    x: cx + rx * Math.cos(angle),
+    y: cy + ry * Math.sin(angle)
+  };
+}
+
+function linePath(x1, y1, x2, y2) {
+  return (t) => ({ x: lerp(x1, x2, t), y: lerp(y1, y2, t) });
+}
+
+function curvePath(x1, y1, cpx, cpy, x2, y2) {
+  return (t) => {
+    const mt = 1 - t;
+    return {
+      x: mt*mt*x1 + 2*mt*t*cpx + t*t*x2,
+      y: mt*mt*y1 + 2*mt*t*cpy + t*t*y2
+    };
+  };
+}
+
+// ─── ORGAN DRAWING LIBRARY ───────────────────────────────────────────────────
+function drawOrgan(name, x, y, w, h, color, glowColor, label, alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  glow(glowColor, 20);
+  ctx.fillStyle = color;
+  ctx.strokeStyle = glowColor;
+  ctx.lineWidth = 1.5;
+
+  switch(name) {
+    case 'stomach': drawStomach(x, y, w, h); break;
+    case 'intestine': drawIntestine(x, y, w, h); break;
+    case 'liver': drawLiver(x, y, w, h); break;
+    case 'pancreas': drawPancreas(x, y, w, h); break;
+    case 'muscle': drawMuscle(x, y, w, h); break;
+    case 'adipose': drawAdipose(x, y, w, h); break;
+    case 'brain': drawBrain(x, y, w, h); break;
+    case 'heart': drawHeart(x, y, w, h); break;
+    default: drawGenericOrgan(x, y, w, h); break;
+  }
+
+  noGlow();
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${clamp(w/6, 9, 14)}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.fillText(label, x, y + h/2 + 18);
+  ctx.restore();
+}
+
+function drawStomach(x, y, w, h) {
+  ctx.beginPath();
+  ctx.moveTo(x - w*0.2, y - h*0.5);
+  ctx.bezierCurveTo(x - w*0.5, y - h*0.4, x - w*0.6, y + h*0.1, x - w*0.4, y + h*0.5);
+  ctx.bezierCurveTo(x - w*0.1, y + h*0.6, x + w*0.3, y + h*0.5, x + w*0.45, y + h*0.2);
+  ctx.bezierCurveTo(x + w*0.5, y - h*0.1, x + w*0.3, y - h*0.5, x - w*0.2, y - h*0.5);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawIntestine(x, y, w, h) {
+  const loops = 4;
+  for (let i = 0; i < loops; i++) {
+    const yy = y - h*0.4 + (i/loops)*h*0.8;
+    const dir = i % 2 === 0 ? 1 : -1;
+    ctx.beginPath();
+    ctx.ellipse(x + dir*w*0.1, yy, w*0.4, h*0.08, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+function drawLiver(x, y, w, h) {
+  ctx.beginPath();
+  ctx.moveTo(x - w*0.5, y - h*0.1);
+  ctx.bezierCurveTo(x - w*0.4, y - h*0.5, x + w*0.2, y - h*0.5, x + w*0.5, y - h*0.2);
+  ctx.bezierCurveTo(x + w*0.5, y + h*0.3, x + w*0.1, y + h*0.5, x - w*0.2, y + h*0.4);
+  ctx.bezierCurveTo(x - w*0.5, y + h*0.3, x - w*0.6, y + h*0.1, x - w*0.5, y - h*0.1);
+  ctx.fill(); ctx.stroke();
+}
+
+function drawPancreas(x, y, w, h) {
+  ctx.beginPath();
+  ctx.ellipse(x - w*0.1, y, w*0.55, h*0.28, -0.3, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(x + w*0.35, y + h*0.05, w*0.22, h*0.2, 0.5, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+}
+
+function drawMuscle(x, y, w, h) {
+  for (let i = 0; i < 3; i++) {
+    const my = y - h*0.3 + i*h*0.3;
+    ctx.beginPath();
+    ctx.ellipse(x, my, w*0.45, h*0.12, 0, 0, Math.PI*2);
+    ctx.fill(); ctx.stroke();
+  }
+}
+
+function drawAdipose(x, y, w, h) {
+  const dots = 7;
+  for (let i = 0; i < dots; i++) {
+    const ang = (i/dots)*Math.PI*2;
+    const r = w*0.28;
+    const dx = Math.cos(ang)*r*0.6;
+    const dy = Math.sin(ang)*r*0.5;
+    ctx.beginPath();
+    ctx.arc(x + dx, y + dy, w*0.17, 0, Math.PI*2);
+    ctx.fill(); ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(x, y, w*0.17, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+}
+
+function drawBrain(x, y, w, h) {
+  ctx.beginPath();
+  ctx.ellipse(x - w*0.1, y - h*0.05, w*0.38, h*0.4, 0, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(x + w*0.15, y - h*0.05, w*0.3, h*0.38, 0, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x, y - h*0.4);
+  ctx.lineTo(x, y + h*0.35);
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.stroke();
+}
+
+function drawHeart(x, y, w, h) {
+  ctx.beginPath();
+  ctx.moveTo(x, y + h*0.35);
+  ctx.bezierCurveTo(x - w*0.5, y, x - w*0.5, y - h*0.4, x, y - h*0.2);
+  ctx.bezierCurveTo(x + w*0.5, y - h*0.4, x + w*0.5, y, x, y + h*0.35);
+  ctx.fill(); ctx.stroke();
+}
+
+function drawGenericOrgan(x, y, w, h) {
+  ctx.beginPath();
+  ctx.ellipse(x, y, w*0.5, h*0.4, 0, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+}
+
+// ─── BLOODSTREAM NETWORK ─────────────────────────────────────────────────────
+function drawBloodVessels(alpha = 0.5) {
+  const W = canvas.width, H = canvas.height;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  const vessels = [
+    // Aorta (vertical center)
+    [W*0.5, H*0.15, W*0.5, H*0.85],
+    // Portal vein to liver
+    [W*0.5, H*0.55, W*0.3, H*0.42],
+    // To muscles
+    [W*0.5, H*0.5, W*0.75, H*0.65],
+    // To brain
+    [W*0.5, H*0.2, W*0.5, H*0.1],
+    // To intestine
+    [W*0.5, H*0.6, W*0.55, H*0.7],
+    // To adipose
+    [W*0.5, H*0.7, W*0.78, H*0.78],
+    // To pancreas
+    [W*0.5, H*0.52, W*0.38, H*0.58],
+  ];
+
+  vessels.forEach(([x1,y1,x2,y2]) => {
+    const grad = ctx.createLinearGradient(x1,y1,x2,y2);
+    grad.addColorStop(0, C.blood);
+    grad.addColorStop(1, C.bloodDark);
+    ctx.beginPath();
+    ctx.moveTo(x1,y1);
+    ctx.lineTo(x2,y2);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 4;
+    glow(C.blood, 8);
+    ctx.stroke();
+    noGlow();
+  });
+  ctx.restore();
+}
+
+// ─── DRAW ARROWS ─────────────────────────────────────────────────────────────
+function drawArrow(x1, y1, x2, y2, color = '#60a5fa', alpha = 0.8) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  glow(color, 6);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  // Arrowhead
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const len = 10;
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - len*Math.cos(angle-0.4), y2 - len*Math.sin(angle-0.4));
+  ctx.lineTo(x2 - len*Math.cos(angle+0.4), y2 - len*Math.sin(angle+0.4));
+  ctx.closePath();
+  ctx.fill();
+  noGlow();
+  ctx.restore();
+}
+
+// ─── FLOATING LABELS ─────────────────────────────────────────────────────────
+function drawLabel(text, x, y, color = '#fff', alpha = 1, size = 11) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = `bold ${size}px Arial`;
+  ctx.textAlign = 'center';
+  const w = ctx.measureText(text).width;
+  ctx.fillStyle = 'rgba(0,5,20,0.75)';
+  ctx.beginPath();
+  ctx.roundRect(x - w/2 - 6, y - size - 2, w + 12, size + 8, 4);
+  ctx.fill();
+  ctx.fillStyle = color;
+  glow(color, 6);
+  ctx.fillText(text, x, y);
+  noGlow();
+  ctx.restore();
+}
+
+// ─── CELL MEMBRANE ZOOM ──────────────────────────────────────────────────────
+function drawCellZoom(x, y, r, glucoseCount, insulinBound, label, alpha) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // Cell body
+  glow(C.organGlow, 25);
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(10,30,80,0.7)';
+  ctx.fill();
+
+  // Membrane
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(100,200,255,0.6)';
+  ctx.lineWidth = 8;
+  ctx.stroke();
+  noGlow();
+
+  drawLabel('Cell Membrane', x, y - r - 12, '#93c5fd', alpha);
+  drawLabel('Cell Interior', x, y + r*0.3, '#60a5fa', alpha*0.7, 10);
+
+  // Insulin receptors on membrane
+  if (insulinBound) {
+    for (let i = 0; i < 4; i++) {
+      const ang = (i/4)*Math.PI*2 + Math.PI*0.1;
+      const rx = x + (r-4)*Math.cos(ang);
+      const ry = y + (r-4)*Math.sin(ang);
+      glow(C.insulin, 12);
+      ctx.beginPath();
+      ctx.arc(rx, ry, 6, 0, Math.PI*2);
+      ctx.fillStyle = C.insulin;
+      ctx.fill();
+      // Receptor stalk
+      ctx.beginPath();
+      ctx.moveTo(rx, ry);
+      ctx.lineTo(rx + 14*Math.cos(ang), ry + 14*Math.sin(ang));
+      ctx.strokeStyle = C.insulin;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      noGlow();
+    }
+    drawLabel('Insulin Receptor', x + r*0.7, y - r*0.5, C.insulin, alpha, 9);
+
+    // GLUT-4 transporter
+    const gx = x + r*0.9*Math.cos(-Math.PI*0.3);
+    const gy = y + r*0.9*Math.sin(-Math.PI*0.3);
+    ctx.beginPath();
+    ctx.arc(gx, gy, 9, 0, Math.PI*2);
+    ctx.fillStyle = '#34d399';
+    glow('#34d399', 10);
+    ctx.fill();
+    noGlow();
+    drawLabel('GLUT-4\nTransporter', gx + 18, gy - 18, '#34d399', alpha, 8);
+    drawArrow(gx, gy - 20, gx, gy - r*0.3, '#34d399', alpha * 0.7);
+  }
+
+  // Glucose entering
+  for (let i = 0; i < glucoseCount; i++) {
+    const ang = rand(0, Math.PI*2);
+    const dist = rand(0, r*0.7);
+    const gx = x + dist*Math.cos(ang);
+    const gy = y + dist*Math.sin(ang);
+    glow(C.glucose, 8);
+    ctx.beginPath();
+    for (let j = 0; j < 6; j++) {
+      const ha = (j/6)*Math.PI*2 - Math.PI/6;
+      const hx = gx + 5*Math.cos(ha);
+      const hy = gy + 5*Math.sin(ha);
+      j === 0 ? ctx.moveTo(hx, hy) : ctx.lineTo(hx, hy);
+    }
+    ctx.closePath();
+    ctx.fillStyle = C.glucose;
+    ctx.fill();
+    noGlow();
+  }
+
+  drawLabel(label, x, y + r + 18, '#e2e8f0', alpha, 11);
+  ctx.restore();
+}
+
+// ─── GLUCOSE GRAPH ───────────────────────────────────────────────────────────
+function updateGlucoseGraph() {
+  gcCtx.fillStyle = 'rgba(0,5,20,0.3)';
+  gcCtx.fillRect(0, 0, 180, 70);
+  gcCtx.clearRect(0, 0, 180, 70);
+
+  gcCtx.strokeStyle = 'rgba(255,140,0,0.15)';
+  gcCtx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    gcCtx.beginPath();
+    gcCtx.moveTo(0, i*17.5);
+    gcCtx.lineTo(180, i*17.5);
+    gcCtx.stroke();
+  }
+
+  if (glucoseData.length < 2) return;
+  gcCtx.beginPath();
+  gcCtx.moveTo(0, 70 - (glucoseData[0]/200)*70);
+  glucoseData.forEach((v, i) => {
+    gcCtx.lineTo((i/(glucoseData.length-1))*180, 70 - (v/200)*70);
+  });
+  gcCtx.strokeStyle = C.glucose;
+  gcCtx.lineWidth = 2;
+  gcCtx.shadowColor = C.glucose;
+  gcCtx.shadowBlur = 6;
+  gcCtx.stroke();
+  gcCtx.shadowBlur = 0;
+
+  gcCtx.fillStyle = '#94a3b8';
+  gcCtx.font = '8px Arial';
+  gcCtx.fillText('80 mg/dL', 2, 68);
+  gcCtx.fillText('200 mg/dL', 2, 8);
+  const cur = glucoseData[glucoseData.length-1];
+  gcCtx.fillStyle = C.glucose;
+  gcCtx.font = 'bold 9px Arial';
+  gcCtx.fillText(`${Math.round(cur)} mg/dL`, 90, 12);
+}
+
+// ─── SCENE RENDERERS ─────────────────────────────────────────────────────────
+function drawStarField() {
+  if (!drawStarField.stars) {
+    drawStarField.stars = Array.from({length:150}, () => ({
+      x: Math.random(), y: Math.random(), r: rand(0.5,1.5), b: rand(0.2,0.8)
+    }));
+  }
+  const W = canvas.width, H = canvas.height;
+  drawStarField.stars.forEach(s => {
+    ctx.globalAlpha = s.b * 0.4;
+    ctx.fillStyle = '#c7d2fe';
+    ctx.beginPath();
+    ctx.arc(s.x*W, s.y*H, s.r, 0, Math.PI*2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function sceneEating(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+
+  // Person silhouette (simple)
+  const px = W*0.18, py = H*0.5;
+  ctx.save();
+  ctx.globalAlpha = 0.85 * Math.min(1, t*3);
+  // Body
+  ctx.fillStyle = '#1e293b';
+  ctx.beginPath();
+  ctx.ellipse(px, py+H*0.12, W*0.07, H*0.15, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Head
+  ctx.beginPath();
+  ctx.arc(px, py-H*0.08, W*0.045, 0, Math.PI*2);
+  ctx.fill();
+  // Arm + fork gesture
+  ctx.beginPath();
+  ctx.moveTo(px+W*0.04, py+H*0.02);
+  ctx.quadraticCurveTo(px+W*0.1, py-H*0.05, px+W*0.09, py-H*0.1);
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 8;
+  ctx.stroke();
+  ctx.restore();
+
+  drawLabel('Person eating a balanced meal', px, py + H*0.3, '#93c5fd', Math.min(1, t*3));
+
+  // Food plate
+  const fpx = W*0.35, fpy = H*0.55;
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, t*2);
+  glow('#a3e635', 10);
+  ctx.beginPath();
+  ctx.ellipse(fpx, fpy, W*0.1, H*0.06, 0, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(200,200,200,0.15)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(200,200,200,0.4)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  noGlow();
+
+  // Carbs (orange)
+  ctx.fillStyle = C.glucose; glow(C.glucose,8);
+  ctx.beginPath(); ctx.ellipse(fpx-W*0.03, fpy, W*0.03, H*0.03, 0,0,Math.PI*2); ctx.fill();
+  // Protein (green)
+  ctx.fillStyle = C.amino; glow(C.amino,8);
+  ctx.beginPath(); ctx.ellipse(fpx+W*0.03, fpy-H*0.01, W*0.025, H*0.025, 0,0,Math.PI*2); ctx.fill();
+  // Fat (yellow)
+  ctx.fillStyle = C.fat; glow(C.fat,8);
+  ctx.beginPath(); ctx.ellipse(fpx+W*0.01, fpy+H*0.02, W*0.02, H*0.02, 0,0,Math.PI*2); ctx.fill();
+  noGlow();
+  ctx.restore();
+
+  drawLabel('Carbohydrates', fpx-W*0.03, fpy+H*0.07, C.glucose, Math.min(1,t*4));
+  drawLabel('Proteins', fpx+W*0.04, fpy+H*0.07, C.amino, Math.min(1,t*4));
+  drawLabel('Fats', fpx+W*0.01, fpy+H*0.08, C.fat, Math.min(1,t*4));
+
+  // Macronutrient particles drifting right
+  if (t > 0.3 && Math.random() < 0.12) {
+    const types = ['glucose','amino','fat'];
+    const type = types[randInt(0,2)];
+    particles.push(new Particle(fpx + rand(-20,20), fpy + rand(-20,20), type, {
+      vx: rand(0.5,2), vy: rand(-0.5,0.5), decay: 0.01,
+      label: type === 'glucose' ? 'Glucose' : type === 'amino' ? 'Amino Acid' : 'Fatty Acid'
+    }));
+  }
+}
+
+function sceneOralDigestion(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+
+  // Mouth cross-section
+  const mx = W*0.5, my = H*0.35;
+  ctx.save();
+  glow('#f59e0b', 15);
+  ctx.fillStyle = 'rgba(120,60,20,0.4)';
+  ctx.beginPath();
+  ctx.ellipse(mx, my, W*0.2, H*0.12, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  noGlow();
+  drawLabel('MOUTH', mx, my - H*0.15, '#fbbf24', t > 0.1 ? 1 : 0);
+
+  // Teeth
+  for (let i = -3; i <= 3; i++) {
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillRect(mx + i*W*0.025 - 3, my - H*0.1, 6, 12);
+    ctx.fillRect(mx + i*W*0.025 - 3, my + H*0.04, 6, 12);
+  }
+
+  // Salivary amylase label
+  if (t > 0.4) {
+    drawLabel('Salivary Amylase', mx - W*0.22, my, '#a3e635', (t-0.4)*5);
+    drawArrow(mx - W*0.12, my, mx - W*0.02, my, '#a3e635', (t-0.4)*5);
+  }
+
+  // Starch breaking down to glucose
+  if (t > 0.5 && Math.random() < 0.15) {
+    particles.push(new Particle(mx + rand(-30,30), my, 'glucose', {
+      vx: rand(-1,1), vy: rand(-1,1), decay: 0.008, size: 5
+    }));
+  }
+
+  // Esophagus below
+  const ey = H*0.52;
+  ctx.save();
+  glow(C.blood, 8);
+  ctx.fillStyle = 'rgba(120,30,30,0.4)';
+  ctx.beginPath();
+  ctx.roundRect(mx - W*0.04, my + H*0.12, W*0.08, ey - my - H*0.12, 6);
+  ctx.fill();
+  ctx.strokeStyle = C.blood;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  noGlow();
+  drawLabel('ESOPHAGUS', mx + W*0.1, (my + ey)/2, '#fca5a5', t > 0.2 ? 1 : 0);
+
+  // Peristalsis arrows
+  if (t > 0.3) {
+    for (let i = 0; i < 3; i++) {
+      const ay = my + H*0.12 + i*H*0.08;
+      drawArrow(mx, ay, mx, ay + H*0.05, '#f87171', 0.6 * (t-0.3));
+    }
+  }
+  ctx.restore();
+}
+
+function sceneStomach(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+
+  const sx = W*0.45, sy = H*0.47;
+  const sw = W*0.22, sh = H*0.25;
+  const alphaOrgan = Math.min(1, t*3);
+
+  drawOrgan('stomach', sx, sy, sw, sh, 'rgba(140,40,40,0.5)', '#ef4444', 'STOMACH', alphaOrgan);
+
+  if (t > 0.2) {
+    drawLabel('HCl  pH 1.5–2', sx - W*0.05, sy - H*0.06, '#fca5a5', Math.min(1,(t-0.2)*4));
+    drawLabel('Pepsin (Protease)', sx + W*0.05, sy + H*0.04, C.amino, Math.min(1,(t-0.2)*4));
+  }
+
+  // Churning motion — particles spinning
+  if (t > 0.3 && Math.random() < 0.2) {
+    const ang = Math.random()*Math.PI*2;
+    const r = rand(10, sw*0.4);
+    particles.push(new Particle(
+      sx + r*Math.cos(ang), sy + r*Math.sin(ang),
+      Math.random() < 0.5 ? 'glucose' : 'amino',
+      { vx: rand(-1.5,1.5), vy: rand(-1.5,1.5), decay: 0.012, size: 4 }
+    ));
+  }
+
+  if (t > 0.5) {
+    drawLabel('Chyme forming...', sx, sy + H*0.16, '#f1f5f9', (t-0.5)*4);
+    drawArrow(sx, sy + H*0.14, sx, sy + H*0.2, '#94a3b8', (t-0.5)*4);
+  }
+
+  // Small intestine below
+  if (t > 0.6) {
+    const a = (t-0.6)*5;
+    drawOrgan('intestine', sx, sy + H*0.33, sw*0.85, sh*0.7, 'rgba(180,100,40,0.4)', '#f97316', 'SMALL INTESTINE', a*Math.min(1,a));
+  }
+}
+
+function sceneAbsorption(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+
+  const ix = W*0.45, iy = H*0.45;
+  drawOrgan('intestine', ix, iy, W*0.22, H*0.3, 'rgba(180,100,40,0.5)', '#f97316', 'SMALL INTESTINE', 1);
+
+  // Brush border / villi representation
+  if (t > 0.15) {
+    const a = Math.min(1,(t-0.15)*4);
+    for (let i = -5; i <= 5; i++) {
+      const vx = ix + i*W*0.018;
+      glow('#fb923c', 6);
+      ctx.fillStyle = `rgba(251,146,60,${0.4*a})`;
+      ctx.fillRect(vx - 2, iy - H*0.12, 4, H*0.09);
+      noGlow();
+    }
+    drawLabel('Villi (microvilli)', ix, iy - H*0.14, '#fb923c', a, 10);
+  }
+
+  // Absorption labels
+  if (t > 0.3) {
+    const a = Math.min(1,(t-0.3)*4);
+    drawLabel('SGLT-1 Transporter', ix - W*0.22, iy - H*0.05, C.glucose, a, 9);
+    drawArrow(ix - W*0.13, iy - H*0.05, ix - W*0.05, iy - H*0.02, C.glucose, a*0.8);
+  }
+
+  // Particles emerging from intestine
+  if (t > 0.25 && Math.random() < 0.15) {
+    const types = ['glucose','amino','fat'];
+    const type = types[randInt(0,2)];
+    particles.push(new Particle(ix + rand(-W*0.08, W*0.08), iy, type, {
+      vx: rand(-1, 1), vy: rand(-2, -0.5), decay: 0.006, size: 5
+    }));
+  }
+
+  if (t > 0.5) {
+    const a = Math.min(1,(t-0.5)*4);
+    drawLabel('Glucose → Blood', ix + W*0.14, iy - H*0.06, C.glucose, a, 10);
+    drawLabel('Amino Acids → Blood', ix + W*0.14, iy, C.amino, a, 10);
+    drawLabel('Fats → Lymph (Chylomicrons)', ix + W*0.14, iy + H*0.06, C.fat, a, 10);
+  }
+
+  // Liver portal
+  if (t > 0.6) {
+    const a = Math.min(1,(t-0.6)*5);
+    drawArrow(ix + W*0.12, iy, W*0.26, H*0.32, C.glucose, a*0.8);
+    drawLabel('Portal Vein → Liver', W*0.22, H*0.28, C.glucose, a, 10);
+  }
+}
+
+function sceneBloodstream(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+  drawBloodVessels(Math.min(0.6, t*2));
+
+  drawLabel('BLOODSTREAM\n(Transport Network)', W*0.5, H*0.12, '#f87171', Math.min(1,t*3));
+
+  // All organ icons around
+  const organs = [
+    { n:'brain',   x:W*0.5,  y:H*0.18, l:'BRAIN' },
+    { n:'liver',   x:W*0.27, y:H*0.42, l:'LIVER' },
+    { n:'pancreas',x:W*0.36, y:H*0.58, l:'PANCREAS' },
+    { n:'stomach', x:W*0.5,  y:H*0.48, l:'STOMACH' },
+    { n:'muscle',  x:W*0.73, y:H*0.55, l:'MUSCLE' },
+    { n:'adipose', x:W*0.76, y:H*0.75, l:'ADIPOSE\nTISSUE' },
+  ];
+  const colors = {
+    brain:'rgba(120,80,200,0.4)', liver:'rgba(100,30,30,0.5)',
+    pancreas:'rgba(80,120,40,0.4)', stomach:'rgba(140,40,40,0.4)',
+    muscle:'rgba(60,80,160,0.4)', adipose:'rgba(200,160,20,0.3)'
+  };
+  const glows = {
+    brain:'#a78bfa', liver:'#ef4444', pancreas:'#86efac',
+    stomach:'#f87171', muscle:'#60a5fa', adipose:'#fbbf24'
+  };
+
+  organs.forEach((o, i) => {
+    const a = Math.min(1, Math.max(0, t*4 - i*0.3));
+    drawOrgan(o.n, o.x, o.y, W*0.07, H*0.08,
+      colors[o.n], glows[o.n], o.l, a);
+  });
+
+  // Nutrient particles traveling through vessels
+  if (t > 0.3 && Math.random() < 0.2) {
+    const type = ['glucose','amino','fat'][randInt(0,2)];
+    const from = { x: W*0.5, y: H*0.6 };
+    const to = organs[randInt(0, organs.length-1)];
+    particles.push(new Particle(from.x, from.y, type, {
+      pathFn: curvePath(from.x, from.y, (from.x+to.x)/2+rand(-40,40), (from.y+to.y)/2+rand(-40,40), to.x, to.y),
+      pathSpeed: 0.008, decay: 0.02, size: 5
+    }));
+  }
+}
+
+function sceneGlucoseRise(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+
+  // Graph display
+  const graphX = W*0.5 - W*0.25;
+  const graphW = W*0.5;
+  const graphY = H*0.25;
+  const graphH = H*0.4;
+
+  ctx.save();
+  glow('#fb923c', 15);
+  ctx.fillStyle = 'rgba(0,10,30,0.7)';
+  ctx.beginPath();
+  ctx.roundRect(graphX, graphY, graphW, graphH, 12);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(251,146,60,0.4)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  noGlow();
+
+  drawLabel('BLOOD GLUCOSE LEVELS (mg/dL)', W*0.5, graphY - 12, '#fb923c', 1, 12);
+
+  // Axes
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(graphX+30, graphY+10);
+  ctx.lineTo(graphX+30, graphY+graphH-20);
+  ctx.lineTo(graphX+graphW-10, graphY+graphH-20);
+  ctx.stroke();
+
+  // Glucose curve
+  ctx.beginPath();
+  const points = 100;
+  let first = true;
+  const peakT = 0.4;
+  for (let i = 0; i <= points; i++) {
+    const px = i/points;
+    if (px > t) break;
+    let gy;
+    if (px < peakT) {
+      gy = 80 + 60 * easeOut(px/peakT);
+    } else {
+      gy = 140 - 55 * easeOut((px-peakT)/(1-peakT));
+    }
+    glucoseData.push(gy);
+    const screenX = graphX + 30 + px*(graphW-40);
+    const screenY = graphY + graphH - 20 - (gy/200)*(graphH-30);
+    first ? ctx.moveTo(screenX, screenY) : ctx.lineTo(screenX, screenY);
+    first = false;
+  }
+  glow(C.glucose, 8);
+  ctx.strokeStyle = C.glucose;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  noGlow();
+
+  // Reference lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4,4]);
+  [80, 140, 200].forEach(v => {
+    const ly = graphY + graphH - 20 - (v/200)*(graphH-30);
+    ctx.beginPath();
+    ctx.moveTo(graphX+30, ly);
+    ctx.lineTo(graphX+graphW-10, ly);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.font = '9px Arial';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${v}`, graphX+28, ly+3);
+  });
+  ctx.setLineDash([]);
+
+  // Current value indicator
+  const curT = Math.min(t, 1);
+  let curV;
+  if (curT < peakT) { curV = 80 + 60*easeOut(curT/peakT); }
+  else { curV = 140 - 55*easeOut((curT-peakT)/(1-peakT)); }
+
+  const curX = graphX+30+curT*(graphW-40);
+  const curY = graphY+graphH-20-(curV/200)*(graphH-30);
+  glow(C.glucose, 20);
+  ctx.beginPath();
+  ctx.arc(curX, curY, 6, 0, Math.PI*2);
+  ctx.fillStyle = C.glucose;
+  ctx.fill();
+  noGlow();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = C.glucose;
+  ctx.font = 'bold 13px Arial';
+  ctx.fillText(`${Math.round(curV)} mg/dL`, curX, curY - 14);
+
+  // Fasting / peak labels
+  drawLabel('Fasting: ~80 mg/dL', graphX+30+W*0.01, graphY+graphH-20-(80/200)*(graphH-30)-8, '#94a3b8', t>0.1?1:0, 9);
+  if (t > 0.45) drawLabel('Peak: ~140 mg/dL', graphX+30+peakT*(graphW-40), graphY+graphH-20-(140/200)*(graphH-30)-14, C.glucose, (t-0.45)*5, 10);
+  if (t > 0.7) drawLabel('Returning to baseline', graphX+30+0.85*(graphW-40), graphY+graphH-20-(90/200)*(graphH-30)-14, '#86efac', (t-0.7)*5, 10);
+
+  ctx.restore();
+
+  if (t > 0.35 && Math.random() < 0.15) {
+    particles.push(new Particle(W*0.5+rand(-100,100), H*0.78, 'glucose', {
+      vx: rand(-0.5,0.5), vy: rand(-1,-0.3), decay: 0.008, size: 6
+    }));
+  }
+}
+
+function scenePancreas(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+  drawBloodVessels(0.3);
+
+  const px = W*0.45, py = H*0.5;
+  drawOrgan('pancreas', px, py, W*0.22, H*0.12, 'rgba(80,140,60,0.5)', '#86efac', 'PANCREAS', Math.min(1,t*3));
+
+  if (t > 0.15) {
+    const a = Math.min(1,(t-0.15)*4);
+    drawLabel('Islets of Langerhans', px + W*0.14, py, '#86efac', a, 10);
+    drawLabel('Beta Cells', px + W*0.14, py + H*0.05, '#4ade80', a, 10);
+
+    // Beta cell detail
+    ctx.save();
+    ctx.globalAlpha = a;
+    glow('#4ade80', 12);
+    ctx.fillStyle = 'rgba(60,120,40,0.6)';
+    ctx.beginPath();
+    ctx.arc(px + W*0.08, py, 18, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = '#4ade80';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    noGlow();
+    drawLabel('β-cell', px + W*0.08, py + 26, '#4ade80', a, 9);
+    ctx.restore();
+  }
+
+  if (t > 0.3) {
+    const a = Math.min(1,(t-0.3)*5);
+    drawLabel('GLUT-2 detects glucose surge', px, py - H*0.1, '#fb923c', a, 10);
+    drawLabel('ATP ↑  →  K⁺ channels close', px, py - H*0.15, '#fbbf24', a*0.8, 9);
+    drawLabel('Ca²⁺ influx triggers release', px, py - H*0.2, '#a78bfa', a*0.8, 9);
+  }
+
+  // Insulin particles being released
+  if (t > 0.4 && Math.random() < 0.25) {
+    const ang = rand(0, Math.PI*2);
+    particles.push(new Particle(px + rand(-20,20), py + rand(-8,8), 'insulin', {
+      vx: Math.cos(ang)*rand(0.5,2),
+      vy: Math.sin(ang)*rand(0.5,2),
+      decay: 0.005, size: 6,
+      label: t > 0.5 ? 'Insulin' : null
+    }));
+  }
+
+  if (t > 0.6) {
+    const a = (t-0.6)*4;
+    drawArrow(px, py + H*0.07, px, H*0.72, C.insulin, a*0.7);
+    drawLabel('Insulin → Bloodstream', px + W*0.12, H*0.7, C.insulin, a, 11);
+  }
+}
+
+function sceneInsulinRelease(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+  drawBloodVessels(0.5);
+
+  // Central insulin cloud emanating from pancreas area
+  if (Math.random() < 0.3) {
+    const ang = rand(0, Math.PI*2);
+    const r = rand(20, 60);
+    particles.push(new Particle(W*0.45 + r*Math.cos(ang), H*0.5 + r*Math.sin(ang)*0.3, 'insulin', {
+      pathFn: curvePath(
+        W*0.45 + r*Math.cos(ang), H*0.5 + r*Math.sin(ang)*0.3,
+        W*0.5 + rand(-50,50), H*0.4,
+        W*0.5, H*0.2
+      ),
+      pathSpeed: 0.005, decay: 0.004, size: 7
+    }));
+  }
+
+  drawOrgan('pancreas', W*0.45, H*0.5, W*0.22, H*0.12, 'rgba(80,140,60,0.4)', '#86efac', 'PANCREAS', 0.8);
+
+  if (t > 0.2) {
+    const a = Math.min(1,(t-0.2)*4);
+    drawLabel('Insulin molecules', W*0.5, H*0.18, C.insulin, a, 12);
+    drawLabel('released into portal blood', W*0.5, H*0.23, C.insulin, a*0.8, 11);
+  }
+
+  // Organs lighting up as insulin reaches them
+  if (t > 0.4) {
+    const a = (t-0.4)*4;
+    drawOrgan('liver', W*0.27, H*0.35, W*0.1, H*0.1, 'rgba(100,30,30,0.5)', '#ef4444', 'LIVER', Math.min(1,a));
+    if (Math.random()<0.15) particles.push(new Particle(W*0.27+rand(-15,15), H*0.35+rand(-10,10), 'insulin', {vx:rand(-0.5,0.5),vy:rand(-0.5,0.5),decay:0.01,size:5}));
+  }
+  if (t > 0.55) {
+    const a = (t-0.55)*5;
+    drawOrgan('muscle', W*0.73, H*0.5, W*0.1, H*0.1, 'rgba(60,80,160,0.4)', '#60a5fa', 'MUSCLE', Math.min(1,a));
+    if (Math.random()<0.15) particles.push(new Particle(W*0.73+rand(-15,15), H*0.5+rand(-10,10), 'insulin', {vx:rand(-0.5,0.5),vy:rand(-0.5,0.5),decay:0.01,size:5}));
+  }
+  if (t > 0.7) {
+    const a = (t-0.7)*5;
+    drawOrgan('adipose', W*0.76, H*0.73, W*0.1, H*0.1, 'rgba(200,160,20,0.3)', '#fbbf24', 'ADIPOSE', Math.min(1,a));
+    if (Math.random()<0.15) particles.push(new Particle(W*0.76+rand(-15,15), H*0.73+rand(-10,10), 'insulin', {vx:rand(-0.5,0.5),vy:rand(-0.5,0.5),decay:0.01,size:5}));
+  }
+
+  if (t > 0.3) {
+    drawLabel('Insulin binds to target organ receptors', W*0.5, H*0.87, C.insulin, Math.min(1,(t-0.3)*4), 12);
+  }
+}
+
+function sceneMuscleCell(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+
+  // Large muscle cell cross-section zoom
+  const cx = W*0.5, cy = H*0.45, r = Math.min(W,H)*0.22;
+  drawCellZoom(cx, cy, r, Math.floor(t*8), t > 0.3, 'SKELETAL MUSCLE CELL', Math.min(1,t*3));
+
+  if (t > 0.2) {
+    const a = Math.min(1,(t-0.2)*4);
+    // IRS-1 signalling cascade
+    drawLabel('Insulin Receptor → IRS-1 → PI3K → AKT', cx, cy - r - 35, '#a78bfa', a, 10);
+  }
+  if (t > 0.4) {
+    const a = Math.min(1,(t-0.4)*4);
+    drawLabel('GLUT-4 vesicles move to membrane', cx, H*0.82, '#34d399', a, 11);
+    drawArrow(cx, H*0.79, cx, cy + r*0.9 + 10, '#34d399', a*0.7);
+  }
+  if (t > 0.6) {
+    const a = Math.min(1,(t-0.6)*5);
+    drawLabel('Glucose → Glycolysis (ATP) + Glycogen storage', cx, H*0.88, C.glucose, a, 11);
+    drawLabel('Glycogen', cx + r*0.4, cy, C.glycogen, a*0.8, 10);
+    glow(C.glycogen, 10);
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.beginPath();
+    ctx.arc(cx + r*0.4, cy + 15, 12, 0, Math.PI*2);
+    ctx.fillStyle = C.glycogen;
+    ctx.fill();
+    noGlow();
+    ctx.restore();
+  }
+
+  // Insulin particles arriving
+  if (t > 0.1 && Math.random() < 0.2) {
+    const ang = rand(0, Math.PI*2);
+    particles.push(new Particle(cx + (r+40)*Math.cos(ang), cy + (r+40)*Math.sin(ang), 'insulin', {
+      pathFn: linePath(cx+(r+40)*Math.cos(ang), cy+(r+40)*Math.sin(ang), cx+r*Math.cos(ang), cy+r*Math.sin(ang)),
+      pathSpeed: 0.01, decay: 0.015, size: 6
+    }));
+  }
+}
+
+function sceneLiver(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+  drawBloodVessels(0.3);
+
+  const lx = W*0.45, ly = H*0.42;
+  drawOrgan('liver', lx, ly, W*0.22, H*0.18, 'rgba(100,30,30,0.6)', '#ef4444', 'LIVER', Math.min(1,t*3));
+
+  if (t > 0.1) {
+    const a = Math.min(1,(t-0.1)*4);
+    drawLabel('Portal blood arrives from intestine', lx, ly - H*0.14, '#fb923c', a, 11);
+    drawArrow(lx, ly - H*0.1, lx, ly - H*0.06, '#fb923c', a*0.8);
+  }
+
+  if (t > 0.25) {
+    const a = Math.min(1,(t-0.25)*4);
+    drawLabel('Insulin suppresses gluconeogenesis', lx - W*0.22, ly - H*0.04, '#f87171', a, 10);
+    drawLabel('Glycogen Synthase activated', lx - W*0.22, ly + H*0.02, '#e879f9', a, 10);
+    drawLabel('~100g Glycogen stored', lx - W*0.22, ly + H*0.08, C.glycogen, a, 10);
+  }
+
+  // Glycogen granules forming inside liver
+  if (t > 0.3) {
+    const a = Math.min(1,(t-0.3)*4);
+    ctx.save();
+    ctx.globalAlpha = a * 0.8;
+    glow(C.glycogen, 10);
+    for (let i = 0; i < 8; i++) {
+      const ang = (i/8)*Math.PI*2;
+      const r = W*0.05;
+      ctx.beginPath();
+      ctx.arc(lx + r*Math.cos(ang)*0.6, ly + r*Math.sin(ang)*0.4, 5, 0, Math.PI*2);
+      ctx.fillStyle = C.glycogen;
+      ctx.fill();
+    }
+    noGlow();
+    ctx.restore();
+    drawLabel('Glycogen granules', lx + W*0.12, ly, C.glycogen, a, 10);
+  }
+
+  if (t > 0.5) {
+    const a = Math.min(1,(t-0.5)*4);
+    drawLabel('"Glucose Buffer" — maintains blood glucose', lx, ly + H*0.16, '#94a3b8', a, 10);
+  }
+
+  // Particles
+  if (Math.random() < 0.15) {
+    particles.push(new Particle(lx+rand(-W*0.08,W*0.08), ly-H*0.1, 'glucose', {
+      pathFn: linePath(lx, ly-H*0.08, lx+rand(-30,30), ly+rand(-20,20)),
+      pathSpeed: 0.008, decay: 0.008, size: 5
+    }));
+  }
+}
+
+function sceneAdipose(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+
+  const ax = W*0.45, ay = H*0.47;
+  drawOrgan('adipose', ax, ay, W*0.2, H*0.22, 'rgba(200,160,20,0.35)', '#fbbf24', 'ADIPOSE TISSUE', Math.min(1,t*3));
+
+  if (t > 0.15) {
+    const a = Math.min(1,(t-0.15)*4);
+    drawLabel('Insulin activates Lipoprotein Lipase', ax, ay - H*0.16, '#fbbf24', a, 10);
+    drawLabel('Chylomicrons → Free Fatty Acids', ax, ay - H*0.11, C.fat, a, 10);
+    drawArrow(ax, ay - H*0.08, ax, ay - H*0.04, C.fat, a*0.8);
+  }
+
+  if (t > 0.35) {
+    const a = Math.min(1,(t-0.35)*4);
+    drawLabel('Hormone-Sensitive Lipase: SUPPRESSED', ax + W*0.18, ay - H*0.04, '#f87171', a, 10);
+    drawLabel('→ No fat breakdown (anti-lipolytic)', ax + W*0.18, ay + H*0.02, '#fca5a5', a, 10);
+  }
+
+  if (t > 0.5) {
+    const a = Math.min(1,(t-0.5)*4);
+    drawLabel('Triglyceride synthesis ↑', ax, ay + H*0.14, C.fat, a, 11);
+    drawLabel('GLUT-4 opens → glucose enters', ax, ay + H*0.2, C.glucose, a, 10);
+  }
+
+  // Fat droplets forming
+  if (t > 0.4 && Math.random() < 0.18) {
+    particles.push(new Particle(ax + rand(-W*0.06,W*0.06), ay + rand(-H*0.08,H*0.08), 'fat', {
+      vx: rand(-0.5,0.5), vy: rand(-0.3,0.3), decay: 0.006, size: 7
+    }));
+  }
+}
+
+function sceneAminoAcids(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+
+  drawOrgan('muscle', W*0.45, H*0.42, W*0.22, H*0.22, 'rgba(60,80,160,0.5)', '#60a5fa', 'SKELETAL MUSCLE', Math.min(1,t*3));
+  drawBloodVessels(0.25);
+
+  if (t > 0.1) {
+    const a = Math.min(1,(t-0.1)*5);
+    drawLabel('Amino acids enter via transporters', W*0.45, H*0.24, C.amino, a, 11);
+    drawArrow(W*0.45, H*0.27, W*0.45, H*0.32, C.amino, a*0.8);
+  }
+
+  if (t > 0.25) {
+    const a = Math.min(1,(t-0.25)*4);
+    drawLabel('Insulin + Amino Acids → mTORC1 activation', W*0.2, H*0.44, '#a78bfa', a, 10);
+    drawArrow(W*0.31, H*0.44, W*0.36, H*0.44, '#a78bfa', a*0.7);
+  }
+
+  if (t > 0.45) {
+    const a = Math.min(1,(t-0.45)*4);
+    drawLabel('Protein Synthesis ↑↑', W*0.45, H*0.64, '#4ade80', a, 13);
+    drawLabel('Muscle Repair & Growth', W*0.45, H*0.69, '#86efac', a, 11);
+  }
+
+  // Amino particles entering muscle
+  if (Math.random() < 0.18) {
+    particles.push(new Particle(W*0.3+rand(-10,10), H*0.3+rand(-10,10), 'amino', {
+      pathFn: curvePath(W*0.3, H*0.3, W*0.38, H*0.38, W*0.45+rand(-20,20), H*0.42+rand(-20,20)),
+      pathSpeed: 0.007, decay: 0.007, size: 5
+    }));
+  }
+
+  // mTOR glow in cell
+  if (t > 0.3) {
+    const a = Math.min(1,(t-0.3)*4);
+    ctx.save();
+    ctx.globalAlpha = a*0.7;
+    glow('#a78bfa', 20);
+    ctx.beginPath();
+    ctx.arc(W*0.45, H*0.42, 20, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(167,139,250,0.3)';
+    ctx.fill();
+    noGlow();
+    ctx.restore();
+    drawLabel('mTORC1', W*0.45, H*0.42 + 5, '#a78bfa', a, 9);
+  }
+}
+
+function sceneNormalize(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+  drawBloodVessels(0.4);
+
+  // Show body with all organs
+  const organs = [
+    { n:'brain',   x:W*0.5,  y:H*0.14, l:'BRAIN',    c:'rgba(120,80,200,0.4)', g:'#a78bfa', w:W*0.09, h:H*0.09 },
+    { n:'liver',   x:W*0.3,  y:H*0.4,  l:'LIVER',    c:'rgba(100,30,30,0.5)',  g:'#ef4444', w:W*0.1,  h:H*0.1 },
+    { n:'pancreas',x:W*0.38, y:H*0.55, l:'PANCREAS',  c:'rgba(80,140,60,0.4)', g:'#86efac', w:W*0.1,  h:H*0.08 },
+    { n:'stomach', x:W*0.5,  y:H*0.44, l:'STOMACH',   c:'rgba(140,40,40,0.4)', g:'#f87171', w:W*0.1,  h:H*0.1 },
+    { n:'muscle',  x:W*0.7,  y:H*0.47, l:'MUSCLE',    c:'rgba(60,80,160,0.4)', g:'#60a5fa', w:W*0.1,  h:H*0.1 },
+    { n:'adipose', x:W*0.72, y:H*0.7,  l:'ADIPOSE',   c:'rgba(200,160,20,0.3)','g':'#fbbf24',w:W*0.1, h:H*0.1 },
+    { n:'intestine',x:W*0.5, y:H*0.62, l:'INTESTINE', c:'rgba(180,100,40,0.4)','g':'#f97316',w:W*0.1, h:H*0.1},
+  ];
+
+  organs.forEach((o,i) => {
+    const a = Math.min(1, Math.max(0, t*5 - i*0.2));
+    drawOrgan(o.n, o.x, o.y, o.w, o.h, o.c, o.g, o.l, a);
+  });
+
+  // Glucose level dropping
+  const glucoseLevel = 140 - 55*easeOut(Math.min(1,t));
+  if (t > 0.2) {
+    const a = Math.min(1,(t-0.2)*4);
+    drawLabel(`Blood Glucose: ${Math.round(glucoseLevel)} mg/dL`, W*0.5, H*0.86, C.glucose, a, 14);
+
+    // Color the label green when normalizing
+    const normalized = glucoseLevel < 100;
+    if (normalized) {
+      drawLabel('HOMEOSTASIS RESTORED', W*0.5, H*0.9, '#4ade80', a * Math.sin(globalTime*0.05+1), 13);
+    }
+  }
+
+  // Slowing insulin particles as level drops
+  if (Math.random() < Math.max(0.02, 0.2*(1-t))) {
+    particles.push(new Particle(W*0.5+rand(-100,100), H*0.5+rand(-80,80), 'insulin', {
+      vx:rand(-0.5,0.5), vy:rand(-0.5,0.5), decay:0.008, size:4
+    }));
+  }
+}
+
+function sceneSummary(t) {
+  const W = canvas.width, H = canvas.height;
+  drawStarField();
+
+  const items = [
+    { text: 'Carbohydrates → Glucose → Blood → Insulin signal', color: C.glucose, y: H*0.22 },
+    { text: 'Beta cells release insulin as blood glucose rises', color: C.insulin, y: H*0.30 },
+    { text: 'Muscle: GLUT-4 opens → glucose uptake + glycogen', color: '#60a5fa', y: H*0.38 },
+    { text: 'Liver: gluconeogenesis suppressed, glycogen stored', color: '#ef4444', y: H*0.46 },
+    { text: 'Adipose: LPL activated, fat stored, lipolysis off', color: C.fat, y: H*0.54 },
+    { text: 'Protein: mTORC1 + amino acids → muscle growth', color: C.amino, y: H*0.62 },
+    { text: 'Blood glucose returns to ~85 mg/dL — homeostasis', color: '#4ade80', y: H*0.70 },
+  ];
+
+  drawLabel('METABOLIC SUMMARY: 2–3 HOUR POSTPRANDIAL WINDOW', W*0.5, H*0.12, '#a78bfa', Math.min(1,t*4), 14);
+
+  items.forEach((item, i) => {
+    const a = Math.min(1, Math.max(0, t*7 - i*0.5));
+    drawLabel(item.text, W*0.5, item.y, item.color, a, 12);
+    if (a > 0) {
+      glow(item.color, 4);
+      ctx.save();
+      ctx.globalAlpha = a * 0.6;
+      ctx.fillStyle = item.color;
+      ctx.beginPath();
+      ctx.arc(W*0.18, item.y - 3, 4, 0, Math.PI*2);
+      ctx.fill();
+      noGlow();
+      ctx.restore();
+    }
+  });
+
+  if (t > 0.7) {
+    const a = (t-0.7)*4;
+    drawLabel('Insulin: The Master Metabolic Hormone', W*0.5, H*0.82, C.insulin, a * Math.abs(Math.sin(globalTime*0.04)), 15);
+  }
+
+  // Gentle particle shower
+  if (Math.random() < 0.15) {
+    const types = ['insulin','glucose','amino','fat'];
+    const type = types[randInt(0,3)];
+    particles.push(new Particle(rand(W*0.1, W*0.9), H*0.05, type, {
+      vx: rand(-0.3,0.3), vy: rand(0.3,1), decay: 0.005, size: 4
+    }));
+  }
+}
+
+// ─── SCENE DISPATCH ──────────────────────────────────────────────────────────
+const sceneRenderers = [
+  sceneEating,
+  sceneOralDigestion,
+  sceneStomach,
+  sceneAbsorption,
+  sceneBloodstream,
+  sceneGlucoseRise,
+  scenePancreas,
+  sceneInsulinRelease,
+  sceneMuscleCell,
+  (t) => { sceneAbsorption(t*0.3); sceneMuscleCell(t); },
+  sceneLiver,
+  sceneAdipose,
+  sceneAminoAcids,
+  sceneNormalize,
+  sceneSummary,
+];
+
+// ─── UI ──────────────────────────────────────────────────────────────────────
+const captionTitle = document.getElementById('captionTitle');
+const captionText = document.getElementById('captionText');
+const sceneIndicator = document.getElementById('sceneIndicator');
+const glucoseGraph = document.getElementById('glucoseGraph');
+
+function buildSceneDots() {
+  sceneIndicator.innerHTML = '';
+  SCENES.forEach((_, i) => {
+    const dot = document.createElement('div');
+    dot.className = 'scene-dot' + (i === currentScene ? ' active' : '');
+    dot.title = SCENES[i].title;
+    dot.addEventListener('click', () => goToScene(i));
+    sceneIndicator.appendChild(dot);
+  });
+}
+
+function updateUI() {
+  captionTitle.textContent = SCENES[currentScene].title;
+  captionText.textContent = SCENES[currentScene].caption;
+  document.querySelectorAll('.scene-dot').forEach((d,i) => {
+    d.classList.toggle('active', i === currentScene);
+  });
+  glucoseGraph.style.display = currentScene >= 5 ? 'block' : 'none';
+  glucoseData = glucoseData.slice(-60);
+}
+
+function goToScene(idx) {
+  currentScene = clamp(idx, 0, SCENES.length-1);
+  sceneTime = 0;
+  particles = [];
+  glucoseData = [];
+  updateUI();
+}
+
+document.getElementById('prevBtn').addEventListener('click', () => goToScene(currentScene-1));
+document.getElementById('nextBtn').addEventListener('click', () => goToScene(currentScene+1));
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ Play' : '⏸ Pause';
+});
+
+// ─── MAIN LOOP ───────────────────────────────────────────────────────────────
+const SCENE_DURATION = 420; // frames per scene (~7s at 60fps)
+
+function drawBackground() {
+  const W = canvas.width, H = canvas.height;
+  const grad = ctx.createRadialGradient(W*0.5, H*0.5, 0, W*0.5, H*0.5, Math.max(W,H)*0.8);
+  grad.addColorStop(0, '#000a1f');
+  grad.addColorStop(1, '#000005');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function tick() {
+  animFrame = requestAnimationFrame(tick);
+  if (!started) return;
+
+  if (!paused) {
+    sceneTime++;
+    globalTime++;
+    if (sceneTime >= SCENE_DURATION && currentScene < SCENES.length - 1) {
+      goToScene(currentScene + 1);
+    }
+  }
+
+  const W = canvas.width, H = canvas.height;
+  drawBackground();
+
+  const t = clamp(sceneTime / SCENE_DURATION, 0, 1);
+
+  // Scene transition fade
+  const fadeIn = Math.min(1, sceneTime / 40);
+  const fadeOut = currentScene < SCENES.length-1 ? Math.min(1, (SCENE_DURATION - sceneTime) / 30) : 1;
+  ctx.globalAlpha = fadeIn * fadeOut;
+
+  const renderer = sceneRenderers[currentScene] || sceneRenderers[0];
+  renderer(t);
+
+  // Draw particles
+  particles = particles.filter(p => !p.isDead());
+  particles.forEach(p => { p.update(); p.draw(); });
+
+  // Keep particle count reasonable
+  if (particles.length > 300) particles.splice(0, 50);
+
+  ctx.globalAlpha = 1;
+
+  // Scene number overlay (top left)
+  ctx.save();
+  ctx.fillStyle = 'rgba(100,160,255,0.4)';
+  ctx.font = '10px Arial';
+  ctx.textAlign = 'left';
+  ctx.fillText(`SCENE ${currentScene+1}/${SCENES.length}`, 16, 16);
+  ctx.restore();
+
+  updateGlucoseGraph();
+}
+
+// ─── TITLE SCREEN ────────────────────────────────────────────────────────────
+document.getElementById('startBtn').addEventListener('click', () => {
+  const ts = document.getElementById('title-screen');
+  ts.style.opacity = '0';
+  setTimeout(() => ts.style.display = 'none', 1000);
+  started = true;
+  buildSceneDots();
+  updateUI();
+});
+
+tick();
+</script>
+</body>
+</html>
