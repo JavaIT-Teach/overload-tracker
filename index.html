@@ -109,13 +109,3696 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin="anonymous"></script>
 
-<!-- App source -->
-<script src="src/routine-data.js?v=2"></script>
-<script src="src/progression.js?v=2"></script>
-<script src="src/seed.js?v=2"></script>
-<script src="src/seed-history.js?v=2"></script>
-<script type="text/babel" data-presets="react" src="src/tracker.jsx?v=2"></script>
-<script type="text/babel" data-presets="react" src="src/app.jsx?v=2"></script>
+<!-- App source (inlined, no external src files) -->
+<script>
+// Progressive Overload Tracker — pre-loaded routine data
+//
+// EXPECTED JSON IMPORT FORMAT:
+// {
+//   "days": [
+//     {
+//       "id": 1,
+//       "name": "PULL",
+//       "subtitle": "Back + Biceps + Forearms",
+//       "exercises": [
+//         {
+//           "name": "Chest-Supported Row Machine",
+//           "sets": 3,
+//           "repMin": 8, "repMax": 10,
+//           "weightMin": 140, "weightMax": 160,
+//           "repCap": 12,
+//           "weightStep": 5,         // optional, default 5 (use 2.5 for dumbbells)
+//           "unit": "lbs",           // optional, default "lbs"
+//           "notation": null         // optional: "per side" | "per hand" | "per side reps" | "steps" | etc
+//         }
+//       ]
+//     }
+//   ]
+// }
+//
+// On import:
+//   • Exercises matched by (day, name) preserve their session history.
+//   • New exercises start fresh.
+//   • Removed exercises have their history archived but never deleted.
+
+// Step heuristics by name keyword
+function stepFor(name) {
+  const n = name.toLowerCase();
+  if (n.includes('dumbbell') || n.includes('lateral raise') || n.includes('hammer curl') || n.includes('incline curl') || n.includes('reverse curl') || n.includes('farmer')) return 2.5;
+  return 5;
+}
+
+const ex = (name, sets, repMin, repMax, weightMin, weightMax, repCap, opts = {}) => ({
+  id: cryptoId(name),
+  name,
+  sets,
+  repMin, repMax,
+  weightMin, weightMax,
+  repCap,
+  weightStep: opts.weightStep ?? stepFor(name),
+  unit: opts.unit ?? 'lbs',
+  notation: opts.notation ?? null,
+  repUnit: opts.repUnit ?? 'reps',
+});
+
+function cryptoId(seed) {
+  // deterministic-ish id from seed
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return 'ex_' + (h >>> 0).toString(36);
+}
+
+const DEFAULT_ROUTINE = {
+  days: [
+    {
+      id: 1, name: 'PULL', subtitle: 'Back · Biceps · Forearms',
+      exercises: [
+        ex('Chest-Supported Row Machine', 3, 8, 10, 140, 160, 12),
+        ex('Lat Pulldown', 3, 8, 10, 110, 121, 12),
+        ex('Cable Straight-Arm Pulldown', 3, 12, 15, 33, 44, 15),
+        ex('Rear Delt Fly Machine', 3, 15, 15, 70, 80, 15),
+        ex('Face Pull', 3, 12, 15, 50, 50, 15),
+        ex('Incline Dumbbell Curl', 3, 8, 10, 25, 25, 12),
+        ex('Behind-the-Back Finger Curls', 2, 12, 15, 60, 66, 15),
+        ex('Hammer Curl', 2, 12, 12, 25, 30, 12),
+      ],
+    },
+    {
+      id: 2, name: 'PUSH', subtitle: 'Chest · Shoulders · Triceps',
+      exercises: [
+        ex('Incline Dumbbell Press', 3, 10, 10, 45, 50, 12),
+        ex('Seated Dumbbell Shoulder Press', 3, 10, 10, 40, 45, 12),
+        ex('Flat Dumbbell Bench Press', 3, 12, 12, 40, 45, 15),
+        ex('Machine Chest Fly (Pec Deck)', 3, 12, 15, 100, 100, 15),
+        ex('Lower Chest Cable Fly', 3, 12, 15, 22, 22, 15),
+        ex('Incline Cable Fly', 3, 12, 15, 13, 17, 15),
+        ex('Lateral Raise', 4, 15, 15, 15, 17.5, 15),
+        ex('Overhead Triceps Extension', 3, 12, 12, 55, 60, 12),
+        ex('Cable Triceps Pushdown', 3, 10, 12, 71, 71, 12),
+      ],
+    },
+    {
+      id: 3, name: 'LEGS', subtitle: 'Lower Body · Core',
+      exercises: [
+        ex('Leg Press', 4, 10, 10, 170, 170, 12, { notation: 'per side' }),
+        ex('Romanian Deadlift', 3, 10, 12, 85, 85, 12),
+        ex('Lying Leg Curl', 4, 12, 12, 125, 130, 12),
+        ex('Leg Extension', 3, 12, 12, 220, 220, 12),
+        ex('Hip Adduction', 2, 12, 15, 120, 120, 15),
+        ex('Hip Abduction', 2, 15, 15, 160, 180, 15),
+        ex('Standing Calf Raise', 3, 15, 15, 110, 110, 15),
+        ex('Dead Bug', 3, 8, 8, 0, 0, 12, { notation: 'per side · bodyweight', unit: '' }),
+        ex('Cable Woodchop', 3, 12, 12, 33, 33, 15, { notation: 'per side' }),
+        ex("Farmer's Walk", 3, 3, 3, 40, 40, 5, { notation: 'per hand', repUnit: 'laps' }),
+      ],
+    },
+    {
+      id: 4, name: 'UPPER', subtitle: 'Chest · Back · Shoulders · Arms',
+      exercises: [
+        ex('Flat Dumbbell Bench Press', 3, 10, 12, 45, 50, 12),
+        ex('Neutral-Grip Row Machine', 3, 10, 12, 99, 99, 12),
+        ex('Lateral Raise', 3, 12, 15, 17.5, 17.5, 15),
+        ex('Cable Fly', 3, 12, 15, 22, 22, 15),
+        ex('Close-Grip Bench Press', 3, 8, 10, 70, 70, 12),
+        ex('Cable Biceps Curl', 3, 12, 15, 49, 49, 15),
+        ex('Reverse Curl', 3, 10, 12, 20, 20, 12),
+      ],
+    },
+  ],
+};
+
+// Re-key day exercises so duplicate names across days don't collide
+DEFAULT_ROUTINE.days.forEach(d => {
+  d.exercises.forEach(e => { e.id = cryptoId(`d${d.id}_${e.name}`); });
+});
+
+window.DEFAULT_ROUTINE = DEFAULT_ROUTINE;
+window.cryptoId = cryptoId;
+window.stepFor = stepFor;
+</script>
+<script>
+// Progression logic & helpers — pure functions
+// ─────────────────────────────────────────────────────────────
+
+// Status from exercise definition.
+// - Fixed reps + fixed weight  → 'stable'   (ready to progress)
+// - Anything with a range      → 'developing'
+// 'plateau' is set elsewhere (when cap is reached and weight can't increase).
+function deriveStatus(ex) {
+  if (ex.plateau) return 'plateau';
+  const repFixed = ex.repMin === ex.repMax;
+  const weightFixed = ex.weightMin === ex.weightMax;
+  if (repFixed && weightFixed) return 'stable';
+  return 'developing';
+}
+
+// Did the user hit the ceiling? (max reps AND max weight on every set)
+function hitCeiling(ex, sets) {
+  if (!sets || sets.length === 0) return false;
+  return sets.every(s => s.reps >= ex.repMax && s.weight >= ex.weightMax);
+}
+
+// Build the rep button row for a logging set: a couple below to a couple above the range,
+// clamped to [1, repCap + 2]. Always includes repMin..repMax.
+function repButtonRange(ex) {
+  const lo = Math.max(1, ex.repMin - 2);
+  const hi = Math.min(ex.repCap + 2, ex.repMax + 2);
+  const arr = [];
+  for (let r = lo; r <= hi; r++) arr.push(r);
+  return arr;
+}
+
+// Build weight options: 3 steps below current target → 3 steps above target,
+// then dedupe & sort. Always include weightMin, weightMax, current target.
+function weightButtonRange(ex) {
+  const step = ex.weightStep || 5;
+  const center = (ex.weightMin + ex.weightMax) / 2;
+  const set = new Set();
+  for (let i = -3; i <= 3; i++) {
+    const v = roundToStep(center + i * step, step);
+    if (v >= 0) set.add(v);
+  }
+  set.add(ex.weightMin); set.add(ex.weightMax);
+  return [...set].sort((a, b) => a - b);
+}
+
+function roundToStep(v, step) {
+  return Math.round(v / step) * step;
+}
+
+// Format a number cleanly: 17.5 → "17.5", 50.0 → "50".
+function fmt(n) {
+  if (n == null) return '';
+  if (Number.isInteger(n)) return String(n);
+  return String(Math.round(n * 10) / 10);
+}
+
+// Pretty target string ("8–10 × 140–160 lbs", "10 × 45 lbs", etc.)
+function targetString(ex) {
+  const reps = ex.repMin === ex.repMax ? fmt(ex.repMin) : `${fmt(ex.repMin)}–${fmt(ex.repMax)}`;
+  const w = ex.weightMin === ex.weightMax ? fmt(ex.weightMin) : `${fmt(ex.weightMin)}–${fmt(ex.weightMax)}`;
+  const wPart = (ex.unit === '' && ex.weightMin === 0) ? 'bodyweight' : `${w}${ex.unit ? ' ' + ex.unit : ''}`;
+  return `${ex.sets} × ${reps} ${ex.repUnit || 'reps'} · ${wPart}`;
+}
+
+// ISO week key, e.g. "2026-W20"
+function isoWeekKey(d = new Date()) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dn = (t.getUTCDay() + 6) % 7; // Mon=0
+  t.setUTCDate(t.getUTCDate() - dn + 3);
+  const firstThu = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
+  const wk = 1 + Math.round(((t - firstThu) / 86400000 - 3 + ((firstThu.getUTCDay() + 6) % 7)) / 7);
+  return `${t.getUTCFullYear()}-W${String(wk).padStart(2, '0')}`;
+}
+
+function shortDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function fullDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Given an ISO week key ("2026-W21"), return the Date of its Monday (UTC).
+function isoWeekStart(weekKey) {
+  const [y, w] = weekKey.split('-W').map(Number);
+  const jan4 = new Date(Date.UTC(y, 0, 4));
+  const jan4Dow = (jan4.getUTCDay() + 6) % 7; // Mon=0
+  const week1Mon = new Date(jan4.getTime() - jan4Dow * 86400000);
+  return new Date(week1Mon.getTime() + (w - 1) * 7 * 86400000);
+}
+
+// Human label: "Week of May 19" — Sunday/Monday agnostic, shows ISO-week Monday.
+function weekLabel(weekKey) {
+  const d = isoWeekStart(weekKey);
+  return `Week of ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`;
+}
+
+// Long label: "May 19 – May 25, 2026"
+function weekRangeLabel(weekKey) {
+  const start = isoWeekStart(weekKey);
+  const end = new Date(start.getTime() + 6 * 86400000);
+  const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
+  const startFmt = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  const endFmt = end.toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  });
+  return `${startFmt} – ${endFmt}`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PROGRESSIVE OVERLOAD ENGINE (v2)
+//  Pure, offline, no AI. All logic derives from logged data.
+// ═══════════════════════════════════════════════════════════════
+
+// Largest weight across a set list.
+function maxWeight(sets) {
+  return (sets || []).reduce((m, s) => Math.max(m, s.weight || 0), 0);
+}
+
+// Total reps across a set list.
+function totalReps(sets) {
+  return (sets || []).reduce((n, s) => n + (s.reps || 0), 0);
+}
+
+// Identical sessions: same length, same reps & weight on every set.
+function identicalSessions(a, b) {
+  if (!a || !b || a.length !== b.length || a.length === 0) return false;
+  return a.every((s, i) => s.reps === b[i].reps && s.weight === b[i].weight);
+}
+
+// Standard increment: dumbbells 2.5, machines/cables 5 (encoded in weightStep).
+function incrementFor(ex) {
+  return ex.weightStep || (typeof stepFor === 'function' ? stepFor(ex.name) : 5) || 5;
+}
+
+// Is this a bodyweight exercise?
+function isBodyweight(ex) {
+  return ex.unit === '' && ex.weightMin === 0 && ex.weightMax === 0;
+}
+
+// Deload target: weight × 0.95, rounded to the increment. Shown as a number,
+// never a percentage.
+function deloadWeight(ex, weight) {
+  return roundToStep((weight || 0) * 0.95, incrementFor(ex));
+}
+
+const STATUS_LABELS = {
+  criteria_met: 'Criteria met — ready to load up',
+  partial: 'Partial — hold weight',
+  fatigue: 'Fatigue drop detected',
+  plateau: 'Plateau detected',
+};
+
+// "Up / Down / Same — detail" comparing a session to the previous one.
+function comparePerformance(ex, sets, prev) {
+  if (!prev || !prev.length) return { dir: 'Same', detail: 'first logged session' };
+  const bw = isBodyweight(ex);
+  const wNow = maxWeight(sets), wPrev = maxWeight(prev);
+  const unit = ex.unit ? ' ' + ex.unit : '';
+
+  if (!bw && wNow !== wPrev) {
+    const up = wNow > wPrev;
+    return { dir: up ? 'Up' : 'Down', detail: `${up ? 'heavier' : 'lighter'} — ${fmt(wPrev)}${unit} → ${fmt(wNow)}${unit}` };
+  }
+  // Same top weight → find the set with the largest rep change.
+  let best = null;
+  const n = Math.min(sets.length, prev.length);
+  for (let i = 0; i < n; i++) {
+    const d = sets[i].reps - prev[i].reps;
+    if (best === null || Math.abs(d) > Math.abs(best.d)) best = { i, d };
+  }
+  if (!best || best.d === 0) {
+    const rNow = totalReps(sets), rPrev = totalReps(prev);
+    if (rNow === rPrev) return { dir: 'Same', detail: 'matched last session' };
+    const up = rNow > rPrev;
+    return { dir: up ? 'Up' : 'Down', detail: `${Math.abs(rNow - rPrev)} ${up ? 'more' : 'fewer'} total reps` };
+  }
+  const up = best.d > 0;
+  return { dir: up ? 'Up' : 'Down', detail: `${Math.abs(best.d)} ${up ? 'more' : 'fewer'} rep${Math.abs(best.d) === 1 ? '' : 's'} on set ${best.i + 1}` };
+}
+
+// Core analysis of a session against the exercise's pre-session state and the
+// two prior sessions. Returns every signal the UI needs.
+function analyze(ex, sets, prev, prevPrev) {
+  const bw = isBodyweight(ex);
+  const repCeil = ex.repMax;
+  const wMaxLogged = maxWeight(sets);
+
+  const hits = sets.map(s => s.reps >= repCeil);
+  const allHit = hits.length > 0 && hits.every(Boolean);
+  const someHit = hits.some(Boolean);
+  const partial = someHit && !allHit;
+
+  // Overload — any set exceeding the rep ceiling by ≥2 (keep the biggest).
+  let overload = null;
+  sets.forEach((s, i) => {
+    const excess = s.reps - repCeil;
+    if (excess >= 2 && (!overload || excess > overload.excess)) {
+      overload = { set: i + 1, reps: s.reps, excess };
+    }
+  });
+
+  // Dynamic weight detection — any set above the current ceiling.
+  const aboveRange = !bw && wMaxLogged > ex.weightMax;
+  const spread = Math.max(0, ex.weightMax - ex.weightMin);
+  const newCeil = wMaxLogged;
+  const newFloor = Math.max(0, newCeil - spread);
+
+  // Fatigue drop — set 1 vs final set ≥ 3 reps.
+  const set1 = sets[0] ? sets[0].reps : 0;
+  const lastReps = sets.length ? sets[sets.length - 1].reps : 0;
+  const drop = set1 - lastReps;
+  const fatigue = drop >= 3;
+  const z = fatigue ? deloadWeight(ex, wMaxLogged || ex.weightMax) : null;
+
+  const atRepCap = ex.repMax >= ex.repCap;
+
+  // Plateau A — at rep ceiling (all sets), at weight ceiling, rep cap reached.
+  const plateauA = allHit && (bw || wMaxLogged >= ex.weightMax) && atRepCap;
+  // Plateau B — identical reps+weight across 3 consecutive sessions.
+  const plateauB = identicalSessions(sets, prev) && identicalSessions(prev, prevPrev);
+  const plateau = plateauA || plateauB;
+
+  let status;
+  if (plateau) status = 'plateau';
+  else if (fatigue) status = 'fatigue';
+  else if (allHit) status = 'criteria_met';
+  else status = 'partial';
+
+  return {
+    bodyweight: bw, repCeil, wMaxLogged,
+    allHit, partial, someHit,
+    overload, aboveRange, newCeil, newFloor, spread,
+    fatigue, drop, z, set1, lastReps,
+    atRepCap, plateauA, plateauB, plateau,
+    status,
+    vs: comparePerformance(ex, sets, prev),
+  };
+}
+
+// Three-line summary built directly from a session's analysis.
+//   Line 1 — performance vs last session (Up / Down / Same + detail)
+//   Line 2 — progression status (one of the four canonical labels)
+//   Line 3 — one actionable note
+
+// Plateau "Next Step" — the specific action from the staged plateau response.
+// Always concrete, always with exact numbers; never a vague "vary the stimulus".
+// last / prev / prevPrev are set-lists (most-recent first among the three).
+//   Stage 1  reps below cap            → add a rep (N+1)
+//   Stage 2  reps at cap               → add weight (current + increment)
+//   Stage 2-hold  weight just raised,
+//            rep floor not rebuilt yet  → hold weight, build back to the floor
+//   Stage 3  three identical sessions
+//            already at the top         → slow the eccentric / deload
+function plateauNextStep(ex, last, prev, prevPrev) {
+  const bw = isBodyweight(ex);
+  const unit = ex.unit ? ' ' + ex.unit : '';
+  const repUnit = ex.repUnit || 'reps';
+  const repCap = ex.repCap;
+  const repFloor = ex.repMin;
+  const incr = incrementFor(ex);
+
+  const sets = last || [];
+  const N = sets.length ? sets[sets.length - 1].reps : 0;        // final-set reps
+  const minReps = sets.length ? Math.min(...sets.map(s => s.reps)) : 0;
+  const X = maxWeight(sets);                                      // current top weight
+  const Xnext = roundToStep(X + incr, incr);
+
+  const wPrev = prev && prev.length ? maxWeight(prev) : X;
+  const wPrev2 = prevPrev && prevPrev.length ? maxWeight(prevPrev) : wPrev;
+  const weightRaisedRecently = !bw && (X > wPrev || wPrev > wPrev2);
+
+  // Stage 2-hold — weight was just/recently raised and the rep floor isn't back.
+  if (!bw && weightRaisedRecently && minReps < repFloor) {
+    return `Hold at ${fmt(X)}${unit} — build back to ${fmt(repFloor)} ${repUnit}`;
+  }
+  // Stage 1 — reps still below the cap: add a rep.
+  if (N < repCap) {
+    return `Increase to ${N + 1} ${repUnit} next session`;
+  }
+  // Reps are at the cap.
+  if (!bw) {
+    // Stage 3 — three identical sessions already at the top of the range: the load
+    // can't keep climbing on schedule, so change the stimulus or deload.
+    const stuck = identicalSessions(sets, prev) && identicalSessions(prev, prevPrev);
+    if (stuck && X >= ex.weightMax) {
+      return 'Slow the eccentric to 3 seconds, or consider a deload';
+    }
+    // Stage 2 — rep cap reached: add weight.
+    return `Increase weight to ${fmt(Xnext)}${unit} next session`;
+  }
+  // Bodyweight at cap — keep adding reps.
+  return `Increase to ${N + 1} ${repUnit} next session`;
+}
+
+function buildSummary(ex, sets, prev, prevPrev) {
+  const a = analyze(ex, sets, prev, prevPrev);
+  const unit = ex.unit ? ' ' + ex.unit : '';
+
+  const line2 = STATUS_LABELS[a.status];
+
+  let line3;
+  if (a.status === 'plateau') {
+    line3 = plateauNextStep(ex, sets, prev, prevPrev);
+  } else if (a.status === 'fatigue') {
+    line3 = `Set 1 was ${a.set1} reps, final set was ${a.lastReps} reps. Consider dropping to ${fmt(a.z)}${unit} next session.`;
+  } else if (a.status === 'criteria_met') {
+    line3 = a.bodyweight
+      ? `Every set reached ${a.repCeil} — add a rep next session.`
+      : `Every set hit ${a.repCeil} — confirm the load increase.`;
+  } else if (a.overload) {
+    line3 = `Set ${a.overload.set} ran ${a.overload.excess} over target — the load is light.`;
+  } else {
+    line3 = a.someHit
+      ? 'Some sets short of the ceiling — hold weight, build the rest up.'
+      : 'Working within range — hold weight, add reps next time.';
+  }
+
+  return { dir: a.vs.dir, line1: `${a.vs.dir} — ${a.vs.detail}`, line2, line3, status: a.status };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  NEXT-SESSION COACH (v4) — deterministic, exactly three outcomes
+//  Computed from a SINGLE logged set vs the exercise's stored rep range
+//  and weight range. No vague suggestions, no dependence on other sets.
+//
+//    1. reps < repMin                          → "Repeat weight next session."
+//    2. reps in range AND weight < weightMax   → hold (no numeric suggestion)
+//    3. reps at repMax AND weight at weightMax → "Weight range increases."
+//                                                (shift weight range +1 step,
+//                                                 reps reset to floor behaviorally)
+//  No other states exist.
+// ═══════════════════════════════════════════════════════════════
+const VERDICT = {
+  repeat:   { kind: 'repeat',   text: 'Repeat weight next session.' },
+  hold:     { kind: 'hold',     text: 'Logged \u2014 keep working within current range.' },
+  increase: { kind: 'increase', text: 'Weight range increases.' },
+};
+
+// The verdict for one just-logged set. Returns null if the set is incomplete.
+function nextSessionVerdict(ex, set) {
+  if (!ex || !set || set.reps == null || set.weight == null) return null;
+  const reps = set.reps, weight = set.weight;
+  // 1 — below the rep floor: hold the load, repeat next session.
+  if (reps < ex.repMin) return VERDICT.repeat;
+  // 3 — both ceilings reached in this set: the weight range steps up.
+  //     Bodyweight is excluded (no weight ceiling to raise) and falls to hold.
+  if (!isBodyweight(ex) && reps >= ex.repMax && weight >= ex.weightMax) return VERDICT.increase;
+  // 2 — inside the range, below the weight ceiling: nothing changes.
+  return VERDICT.hold;
+}
+
+// True iff ANY logged set hit both ceilings. The weight range is shifted exactly
+// once per session regardless of how many sets qualified.
+function sessionRaisesRange(ex, sets) {
+  return (sets || []).some(s => {
+    const v = nextSessionVerdict(ex, s);
+    return v && v.kind === 'increase';
+  });
+}
+
+// One governing verdict for the post-session summary. Priority: increase > repeat > hold.
+function governingVerdict(ex, sets) {
+  let sawRepeat = false;
+  for (const s of (sets || [])) {
+    const v = nextSessionVerdict(ex, s);
+    if (!v) continue;
+    if (v.kind === 'increase') return VERDICT.increase;
+    if (v.kind === 'repeat') sawRepeat = true;
+  }
+  return sawRepeat ? VERDICT.repeat : VERDICT.hold;
+}
+
+// Verdict snapshot for the most recent session of a stored exercise.
+function summarize(ex, history) {
+  if (!history || !history.length) return null;
+  const last = history[history.length - 1];
+  return {
+    verdict: governingVerdict(ex, last.sets),
+    perSet: (last.sets || []).map(s => nextSessionVerdict(ex, s)),
+    status: deriveStatus(ex),
+  };
+}
+
+// Ordered queue of actionable post-log prompts for a freshly logged session.
+// Returns at most one weight/progression prompt plus an optional plateau panel,
+// so the user is never asked to raise the load twice for the same session.
+//   dynamicWeight → overload → progression  (mutually exclusive)
+//   plateau replaces all of the above when a plateau is detected
+function buildPrompts(a, ex) {
+  const prompts = [];
+  if (a.aboveRange) {
+    prompts.push({ type: 'dynamicWeight', x: a.newCeil, newFloor: a.newFloor });
+  } else if (a.plateau) {
+    prompts.push({ type: 'plateau', reason: a.plateauB ? 'identical' : 'ceiling' });
+  } else if (a.overload && !a.bodyweight) {
+    prompts.push({ type: 'overload', set: a.overload.set, reps: a.overload.reps, excess: a.overload.excess });
+  } else if (a.allHit) {
+    const canProgress = a.bodyweight ? (ex.repMax < ex.repCap) : true;
+    if (canProgress) prompts.push({ type: 'progression' });
+  }
+  return prompts;
+}
+
+// Total logged sessions across the whole store (used to re-arm the deload banner).
+function totalSessionCount(store) {
+  return Object.values(store.sessions || {}).reduce((n, arr) => n + (arr ? arr.length : 0), 0);
+}
+
+// Deload scan across all four days: ≥3 distinct exercises whose last two
+// sessions show the same top weight but fewer total reps.
+function detectDeload(store) {
+  const declining = [];
+  for (const day of store.days) {
+    for (const ex of day.exercises) {
+      const h = store.sessions[ex.id] || [];
+      if (h.length < 2) continue;
+      const a = h[h.length - 2], b = h[h.length - 1];
+      if (maxWeight(b.sets) === maxWeight(a.sets) && totalReps(b.sets) < totalReps(a.sets)) {
+        declining.push(ex.name);
+      }
+    }
+  }
+  return { signal: declining.length >= 3, count: declining.length, exercises: declining };
+}
+
+Object.assign(window, {
+  deriveStatus, hitCeiling, repButtonRange, weightButtonRange,
+  roundToStep, fmt, targetString, isoWeekKey, isoWeekStart,
+  weekLabel, weekRangeLabel, shortDate, fullDate,
+  // engine v2
+  maxWeight, totalReps, identicalSessions, incrementFor, isBodyweight,
+  deloadWeight, comparePerformance, analyze, summarize, buildSummary,
+  plateauNextStep,
+  buildPrompts, totalSessionCount, detectDeload,
+  STATUS_LABELS,
+  // coach v4 — deterministic next-session verdict
+  VERDICT, nextSessionVerdict, sessionRaisesRange, governingVerdict,
+});
+</script>
+<script>
+// seed.js — pre-loaded routine DEFINITIONS for first run.
+// ─────────────────────────────────────────────────────────────
+// Builds the day/exercise structure (targets, units, notation). Session
+// history lives in seed-history.js and is merged in separately so logged
+// progress is never tied to a code change. SEED_STORE.sessions starts empty;
+// mergeSeedHistory() fills it.
+//
+// Current date in app: June 10, 2026. Targets below reflect where each lift
+// sits after the June sessions.
+
+(function() {
+  function makeEx(dayId, name, def, opts = {}) {
+    return {
+      id: cryptoId(`d${dayId}_${name}`),
+      name,
+      sets: def.sets,
+      repMin: def.repMin, repMax: def.repMax,
+      weightMin: def.wMin, weightMax: def.wMax,
+      repCap: def.repCap,
+      weightStep: opts.weightStep ?? stepFor(name),
+      unit: opts.unit ?? 'lbs',
+      notation: opts.notation ?? null,
+      repUnit: opts.repUnit ?? 'reps',
+    };
+  }
+
+  const days = [
+    { id: 1, name: 'PULL',  subtitle: 'Back · Biceps · Forearms',           exercises: [] },
+    { id: 2, name: 'PUSH',  subtitle: 'Chest · Shoulders · Triceps',        exercises: [] },
+    { id: 3, name: 'LEGS',  subtitle: 'Lower Body · Core',                  exercises: [] },
+    { id: 4, name: 'UPPER', subtitle: 'Chest · Back · Shoulders · Arms',    exercises: [] },
+  ];
+
+  // add(dayId, name, def, opts) — pushes an exercise definition. No sessions
+  // here; those come from seed-history.js.
+  function add(dayId, name, def, opts) {
+    const ex = makeEx(dayId, name, def, opts || {});
+    days.find(d => d.id === dayId).exercises.push(ex);
+    return ex;
+  }
+
+  // ── DAY 1 · PULL ────────────────────────────────────────────
+  add(1, 'Chest-Supported Row Machine', { sets: 3, repMin: 10, repMax: 12, wMin: 170, wMax: 170, repCap: 12 });
+  add(1, 'Lat Pulldown',                { sets: 3, repMin: 10, repMax: 12, wMin: 126, wMax: 126, repCap: 12 });
+  add(1, 'Cable Straight-Arm Pulldown', { sets: 3, repMin: 12, repMax: 15, wMin: 53,  wMax: 53,  repCap: 15 });
+  add(1, 'Rear Delt Fly Machine',       { sets: 3, repMin: 15, repMax: 15, wMin: 80,  wMax: 80,  repCap: 15 });
+  add(1, 'Face Pull',                   { sets: 3, repMin: 15, repMax: 15, wMin: 60,  wMax: 60,  repCap: 15 });
+  add(1, 'Incline Dumbbell Curl',       { sets: 3, repMin: 8,  repMax: 10, wMin: 27.5, wMax: 27.5, repCap: 12 });
+  add(1, 'Behind-the-Back Finger Curls',{ sets: 2, repMin: 15, repMax: 15, wMin: 77,  wMax: 77,  repCap: 15 });
+  add(1, 'Dumbbell Hammer Curl',        { sets: 2, repMin: 12, repMax: 12, wMin: 25,  wMax: 30,  repCap: 12 });
+
+  // ── DAY 2 · PUSH ────────────────────────────────────────────
+  add(2, 'Incline Dumbbell Press',          { sets: 3, repMin: 8,  repMax: 10, wMin: 50,  wMax: 50,  repCap: 12 });
+  add(2, 'Seated Dumbbell Shoulder Press',  { sets: 3, repMin: 9,  repMax: 10, wMin: 45,  wMax: 45,  repCap: 12 });
+  add(2, 'Flat Dumbbell Bench Press',       { sets: 3, repMin: 12, repMax: 15, wMin: 45,  wMax: 45,  repCap: 15 });
+  add(2, 'Machine Chest Fly (Pec Deck)',    { sets: 3, repMin: 15, repMax: 15, wMin: 110, wMax: 110, repCap: 15 });
+  add(2, 'Lower Chest Cable Fly',           { sets: 3, repMin: 15, repMax: 15, wMin: 30,  wMax: 30,  repCap: 15 });
+  add(2, 'Incline Cable Fly (low-to-high)', { sets: 3, repMin: 12, repMax: 15, wMin: 17,  wMax: 20,  repCap: 15 });
+  add(2, 'Lateral Raise',                   { sets: 4, repMin: 13, repMax: 15, wMin: 20,  wMax: 22.5, repCap: 15 });
+  add(2, 'Overhead Triceps Extension',      { sets: 3, repMin: 10, repMax: 12, wMin: 60,  wMax: 65,  repCap: 12 });
+  add(2, 'Cable Triceps Pushdown',          { sets: 3, repMin: 10, repMax: 12, wMin: 77,  wMax: 82,  repCap: 12 });
+
+  // ── DAY 3 · LEGS + CORE ─────────────────────────────────────
+  add(3, 'Leg Press',           { sets: 4, repMin: 10, repMax: 11, wMin: 180, wMax: 180, repCap: 12 }, { notation: 'per side' });
+  add(3, 'Romanian Deadlift',   { sets: 3, repMin: 12, repMax: 12, wMin: 140, wMax: 140, repCap: 12 });
+  add(3, 'Lying Leg Curl',      { sets: 4, repMin: 12, repMax: 14, wMin: 130, wMax: 130, repCap: 15 });
+  add(3, 'Leg Extension',       { sets: 3, repMin: 12, repMax: 12, wMin: 220, wMax: 220, repCap: 12 });
+  add(3, 'Hip Adduction',       { sets: 2, repMin: 13, repMax: 15, wMin: 130, wMax: 130, repCap: 15 });
+  add(3, 'Hip Abduction',       { sets: 2, repMin: 15, repMax: 15, wMin: 190, wMax: 190, repCap: 15 });
+  add(3, 'Standing Calf Raise', { sets: 3, repMin: 15, repMax: 15, wMin: 130, wMax: 130, repCap: 15 });
+  add(3, 'Dead Bug',            { sets: 3, repMin: 8,  repMax: 8,  wMin: 0,   wMax: 0,   repCap: 12 }, { notation: 'per side · bodyweight', unit: '' });
+  add(3, 'Cable Woodchop',      { sets: 3, repMin: 13, repMax: 13, wMin: 38,  wMax: 45,  repCap: 15 }, { notation: 'per side' });
+  add(3, "Farmer's Walk",       { sets: 3, repMin: 3,  repMax: 3,  wMin: 40,  wMax: 55,  repCap: 5 },  { notation: 'per hand', repUnit: 'laps' });
+
+  // ── DAY 4 · UPPER ───────────────────────────────────────────
+  add(4, 'Flat Dumbbell Bench Press', { sets: 3, repMin: 10, repMax: 12, wMin: 45, wMax: 50, repCap: 12 });
+  add(4, 'Neutral-Grip Row Machine',  { sets: 3, repMin: 12, repMax: 12, wMin: 99, wMax: 99, repCap: 12 });
+  add(4, 'Lateral Raise',             { sets: 3, repMin: 15, repMax: 15, wMin: 17.5, wMax: 17.5, repCap: 15 });
+  add(4, 'Cable Fly',                 { sets: 3, repMin: 15, repMax: 15, wMin: 22, wMax: 22, repCap: 15 });
+  add(4, 'Close-Grip Bench Press',    { sets: 3, repMin: 10, repMax: 11, wMin: 70, wMax: 75, repCap: 12 });
+  add(4, 'Cable Biceps Curl',         { sets: 3, repMin: 15, repMax: 15, wMin: 55, wMax: 55, repCap: 15 });
+  add(4, 'Reverse Curl',              { sets: 3, repMin: 12, repMax: 12, wMin: 22.5, wMax: 22.5, repCap: 12 });
+
+  // ── Expose ──────────────────────────────────────────────────
+  window.SEED_STORE = {
+    days,
+    sessions: {},   // filled by mergeSeedHistory()
+    notes: {},
+    archive: [],
+  };
+})();
+</script>
+<script>
+// seed-history.js — canonical, hardcoded session history.
+// ─────────────────────────────────────────────────────────────
+// This is the single source of truth for logged sessions. It is MERGED into
+// localStorage (never overwrites it) on every load: a seeded session is added
+// only when no session already exists for that exact exercise + calendar date.
+// That rule guarantees:
+//   • Future sessions you log are NEVER clobbered by a code change.
+//   • Re-running the merge is idempotent (safe on every page load).
+//   • New seed entries (e.g. a future date added here) flow in automatically.
+//
+// Keys are "<dayId>::<exact exercise name>" so they resolve to the same
+// deterministic exercise id the rest of the app uses (cryptoId("d<day>_<name>")).
+//
+// Each session: { date, sets: [[reps, weight], ...], note?, prog? }
+//   prog: { kind: 'weight', toWeight } | { kind: 'reps', toReps }
+
+(function () {
+  // All sessions logged at 19:00 UTC for deterministic day bucketing.
+  const D = {
+    may18: '2026-05-18T19:00:00.000Z', // PULL
+    may21: '2026-05-21T19:00:00.000Z', // PUSH · LEGS · UPPER
+    may26: '2026-05-26T19:00:00.000Z', // PULL
+    jun3:  '2026-06-03T19:00:00.000Z', // PULL
+    jun4:  '2026-06-04T19:00:00.000Z', // PUSH
+    jun5:  '2026-06-05T19:00:00.000Z', // LEGS
+    jun7:  '2026-06-07T19:00:00.000Z', // UPPER
+    jun9:  '2026-06-09T19:00:00.000Z', // PULL
+    jun11: '2026-06-11T19:00:00.000Z', // PUSH
+    jun12: '2026-06-12T19:00:00.000Z', // LEGS
+    jun14: '2026-06-14T19:00:00.000Z', // UPPER
+    jun16: '2026-06-16T19:00:00.000Z', // PULL
+    jun19: '2026-06-19T19:00:00.000Z', // PUSH · LEGS · UPPER
+  };
+
+  // s(reps, weight) → [reps, weight] — tiny helper to keep rows readable.
+  const s = (r, w) => [r, w];
+
+  const seedHistory = {
+    // ── DAY 1 · PULL ──────────────────────────────────────────
+    '1::Chest-Supported Row Machine': [
+      { date: D.may18, sets: [s(10,145), s(10,150), s(10,160)] },
+      { date: D.may26, sets: [s(10,160), s(10,160), s(10,160)], prog: { kind: 'weight', toWeight: 170 } },
+      { date: D.jun3,  sets: [s(12,170), s(13,170), s(12,170)] },
+      { date: D.jun9,  sets: [s(12,170), s(11,170), s(12,170)] },
+      { date: D.jun16, sets: [s(12,170), s(12,170), s(12,170)] },
+    ],
+    '1::Lat Pulldown': [
+      { date: D.may18, sets: [s(10,121), s(9,121), s(10,121)] },
+      { date: D.may26, sets: [s(11,121), s(10,121), s(10,121)], prog: { kind: 'weight', toWeight: 126 } },
+      { date: D.jun3,  sets: [s(11,126), s(11,126), s(10,126)] },
+      { date: D.jun9,  sets: [s(12,126), s(11,126), s(11,126)] },
+      { date: D.jun16, sets: [s(12,126), s(11,126), s(11,126)] },
+    ],
+    '1::Cable Straight-Arm Pulldown': [
+      { date: D.may18, sets: [s(10,44), s(12,33), s(12,33)] },
+      { date: D.may26, sets: [s(17,44), s(15,45), s(12,45)] },
+      { date: D.jun3,  sets: [s(15,55), s(13,55), s(12,55)] },
+      { date: D.jun9,  sets: [s(15,57), s(14,57), s(12,57)], note: '57 too much, go 53' },
+      { date: D.jun16, sets: [s(15,53), s(13,53), s(13,53)] },
+    ],
+    '1::Rear Delt Fly Machine': [
+      { date: D.may18, sets: [s(15,80), s(14,80), s(13,80)] },
+      { date: D.may26, sets: [s(15,80), s(15,80), s(14,80)] },
+      { date: D.jun3,  sets: [s(17,80), s(14,80), s(14,80)] },
+      { date: D.jun9,  sets: [s(15,80), s(15,80), s(15,80)] },
+      { date: D.jun16, sets: [s(15,80), s(15,80), s(15,80)] },
+    ],
+    '1::Face Pull': [
+      { date: D.may18, sets: [s(15,50), s(15,50), s(15,50)] },
+      { date: D.may26, sets: [s(15,50), s(15,50), s(15,50)], prog: { kind: 'weight', toWeight: 55 } },
+      { date: D.jun3,  sets: [s(15,55), s(15,55), s(15,55)], prog: { kind: 'weight', toWeight: 60 } },
+      { date: D.jun9,  sets: [s(15,60), s(15,60), s(15,60)] },
+      { date: D.jun16, sets: [s(15,44), s(15,44), s(15,44)] },
+    ],
+    '1::Incline Dumbbell Curl': [
+      { date: D.may18, sets: [s(10,25), s(8,25), s(8,25)] },
+      { date: D.may26, sets: [s(10,25), s(10,25), s(10,25)] },
+      { date: D.jun3,  sets: [s(11,25), s(10,25), s(9,25)], prog: { kind: 'weight', toWeight: 27.5 } },
+      { date: D.jun9,  sets: [s(10,27.5), s(9,27.5), s(8,27.5)] },
+      { date: D.jun16, sets: [s(10,27.5), s(8,27.5), s(7,27.5)] },
+    ],
+    '1::Behind-the-Back Finger Curls': [
+      { date: D.may18, sets: [s(15,66), s(15,66)], prog: { kind: 'weight', toWeight: 70 } },
+      { date: D.may26, sets: [s(15,70), s(15,70)], prog: { kind: 'weight', toWeight: 76 } },
+      { date: D.jun3,  sets: [s(15,76), s(14,76)] },
+      { date: D.jun9,  sets: [s(15,77), s(15,77)] },
+      { date: D.jun16, sets: [s(14,77), s(15,77)] },
+    ],
+    '1::Dumbbell Hammer Curl': [
+      { date: D.may18, sets: [s(12,30), s(12,30)] },
+      { date: D.may26, sets: [s(12,30), s(11,30)] },
+      { date: D.jun3,  sets: [s(14,25), s(12,30)] },
+      { date: D.jun16, sets: [s(12,30), s(10,30)] },
+    ],
+
+    // ── DAY 2 · PUSH ──────────────────────────────────────────
+    '2::Incline Dumbbell Press': [
+      { date: D.may21, sets: [s(10,45), s(10,45), s(10,45)], prog: { kind: 'weight', toWeight: 50 } },
+      { date: D.jun4,  sets: [s(10,50), s(9,50), s(8,50)] },
+      { date: D.jun11, sets: [s(9,50), s(8,50), s(8,45)] },
+      { date: D.jun19, sets: [s(10,50), s(8,50), s(8,50)] },
+    ],
+    '2::Seated Dumbbell Shoulder Press': [
+      { date: D.may21, sets: [s(10,40), s(10,40), s(10,40)], prog: { kind: 'weight', toWeight: 45 } },
+      { date: D.jun4,  sets: [s(10,45), s(9,45), s(9,45)] },
+      { date: D.jun11, sets: [s(8,45), s(10,40), s(10,40)] },
+      { date: D.jun19, sets: [s(8,45), s(8,45), s(8,45)] },
+    ],
+    '2::Flat Dumbbell Bench Press': [
+      { date: D.may21, sets: [s(12,45), s(10,45), s(10,45)] },
+      { date: D.jun4,  sets: [s(14,45), s(11,45), s(13,45)] },
+      { date: D.jun11, sets: [s(12,45), s(12,45), s(11,45)] },
+      { date: D.jun19, sets: [s(12,45), s(12,45), s(12,45)] },
+    ],
+    '2::Machine Chest Fly (Pec Deck)': [
+      { date: D.may21, sets: [s(15,100), s(15,100), s(15,100)], prog: { kind: 'weight', toWeight: 110 } },
+      { date: D.jun4,  sets: [s(15,110), s(15,110), s(15,110)] },
+      { date: D.jun11, sets: [s(15,120), s(12,120), s(12,120)] },
+      { date: D.jun19, sets: [s(14,110), s(14,110), s(10,120)] },
+    ],
+    '2::Lower Chest Cable Fly': [
+      { date: D.may21, sets: [s(15,22), s(15,22), s(15,22)], prog: { kind: 'weight', toWeight: 30 } },
+      { date: D.jun4,  sets: [s(15,30), s(15,30), s(15,30)] },
+      { date: D.jun11, sets: [s(15,30), s(15,30), s(15,30)] },
+      { date: D.jun19, sets: [s(15,33), s(15,33), s(13,33)] },
+    ],
+    '2::Incline Cable Fly (low-to-high)': [
+      { date: D.jun11, sets: [s(15,17), s(12,17), s(13,17)] },
+      { date: D.jun19, sets: [s(12,17), s(12,17), s(12,17)] },
+    ],
+    '2::Lateral Raise': [
+      { date: D.jun11, sets: [s(15,20), s(15,20), s(15,20), s(13,20)] },
+      { date: D.jun19, sets: [s(15,20), s(15,20), s(12,20), s(12,20)] },
+    ],
+    '2::Overhead Triceps Extension': [
+      { date: D.jun11, sets: [s(12,60), s(11,60), s(11,60)] },
+      { date: D.jun19, sets: [s(12,66), s(10,60), s(10,60)] },
+    ],
+    '2::Cable Triceps Pushdown': [
+      { date: D.jun11, sets: [s(12,77), s(11,77), s(11,77)] },
+      { date: D.jun19, sets: [s(12,77), s(12,77), s(11,77)] },
+    ],
+
+    // ── DAY 3 · LEGS ──────────────────────────────────────────
+    '3::Leg Press': [
+      { date: D.may21, sets: [s(11,175), s(11,175), s(10,175), s(10,170)], prog: { kind: 'weight', toWeight: 180 } },
+      { date: D.jun5,  sets: [s(11,180), s(11,180), s(11,180), s(8,180)] },
+      { date: D.jun12, sets: [s(11,175), s(11,175), s(11,175), s(11,175)] },
+      { date: D.jun19, sets: [s(11,180), s(11,180), s(11,180), s(11,180)] },
+    ],
+    '3::Romanian Deadlift': [
+      { date: D.may21, sets: [s(12,100), s(12,85), s(12,85)], prog: { kind: 'weight', toWeight: 140 } },
+      { date: D.jun5,  sets: [s(12,140), s(12,140), s(10,140)] },
+      { date: D.jun12, sets: [s(12,140), s(12,140), s(12,140)] },
+    ],
+    '3::Lying Leg Curl': [
+      { date: D.may21, sets: [s(12,130), s(12,130), s(12,125), s(12,125)] },
+      { date: D.jun5,  sets: [s(14,130), s(14,130), s(14,130), s(14,130)] },
+      { date: D.jun12, sets: [s(12,130), s(12,130), s(12,130), s(11,130)] },
+      { date: D.jun19, sets: [s(12,130), s(12,130), s(12,130), s(12,130)] },
+    ],
+    '3::Leg Extension': [
+      { date: D.may21, sets: [s(12,220), s(12,220), s(12,220)] },
+      { date: D.jun5,  sets: [s(12,220), s(12,220), s(12,220)] },
+      { date: D.jun12, sets: [s(12,230), s(12,230), s(12,230)] },
+      { date: D.jun19, sets: [s(12,240), s(12,240), s(12,240)] },
+    ],
+    '3::Hip Adduction': [
+      { date: D.may21, sets: [s(15,130), s(15,120)] },
+      { date: D.jun5,  sets: [s(15,130), s(13,130)] },
+      { date: D.jun12, sets: [s(15,130), s(15,130)] },
+      { date: D.jun19, sets: [s(15,140), s(11,140)] },
+    ],
+    '3::Hip Abduction': [
+      { date: D.may21, sets: [s(15,190), s(15,180)] },
+      { date: D.jun5,  sets: [s(15,190), s(15,190)] },
+      { date: D.jun12, sets: [s(15,200), s(12,200)] },
+      { date: D.jun19, sets: [s(15,190), s(15,190)] },
+    ],
+    '3::Standing Calf Raise': [
+      { date: D.may21, sets: [s(15,120), s(15,110), s(15,110)], prog: { kind: 'weight', toWeight: 130 } },
+      { date: D.jun5,  sets: [s(15,130), s(15,130), s(15,130)] },
+      { date: D.jun12, sets: [s(15,130), s(15,130), s(15,130)] },
+      { date: D.jun19, sets: [s(15,130), s(15,130), s(15,130)] },
+    ],
+    '3::Dead Bug': [
+      { date: D.jun5,  sets: [s(8,0), s(8,0), s(8,0)] },
+      { date: D.jun12, sets: [s(9,0), s(9,0), s(9,0)] },
+      { date: D.jun19, sets: [s(10,0), s(10,0), s(10,0)] },
+    ],
+    '3::Cable Woodchop': [
+      { date: D.may21, sets: [s(13,38), s(12,38), s(12,33)] },
+      { date: D.jun5,  sets: [s(13,45), s(13,38), s(13,38)] },
+      { date: D.jun12, sets: [s(14,38), s(14,38), s(14,38)] },
+      { date: D.jun19, sets: [s(15,38), s(15,38), s(15,38)] },
+    ],
+    "3::Farmer's Walk": [
+      { date: D.may21, sets: [s(3,55), s(3,40), s(3,40)] },
+      { date: D.jun12, sets: [s(1,65), s(1,65), s(1,65)] },
+      { date: D.jun19, sets: [s(1,60), s(1,60), s(1,60)] },
+    ],
+
+    // ── DAY 4 · UPPER ─────────────────────────────────────────
+    '4::Flat Dumbbell Bench Press': [
+      { date: D.may21, sets: [s(12,50), s(11,50), s(10,45)] },
+      { date: D.jun7,  sets: [s(12,45), s(12,40), s(12,40)] },
+      { date: D.jun14, sets: [s(12,45), s(12,45), s(12,45)] },
+      { date: D.jun19, sets: [s(12,50), s(12,50), s(12,50)] },
+    ],
+    '4::Neutral-Grip Row Machine': [
+      { date: D.may21, sets: [s(12,99), s(11,99), s(10,99)] },
+      { date: D.jun7,  sets: [s(12,99), s(12,99), s(12,99)] },
+      { date: D.jun14, sets: [s(13,104), s(12,110), s(12,115)] },
+      { date: D.jun19, sets: [s(12,115), s(12,115), s(12,115)] },
+    ],
+    '4::Lateral Raise': [
+      { date: D.may21, sets: [s(15,20), s(15,17.5), s(15,17.5)] },
+      { date: D.jun7,  sets: [s(16,17.5), s(15,17.5), s(15,17.5)] },
+      { date: D.jun14, sets: [s(15,20), s(15,20), s(15,20)] },
+      { date: D.jun19, sets: [s(16,20), s(15,20), s(15,20)] },
+    ],
+    '4::Cable Fly': [
+      { date: D.may21, sets: [s(15,25), s(15,22), s(15,22)] },
+      { date: D.jun7,  sets: [s(15,22), s(15,22), s(15,22)] },
+      { date: D.jun14, sets: [s(15,33), s(15,33), s(15,37)] },
+      { date: D.jun19, sets: [s(15,37), s(11,37), s(10,37)] },
+    ],
+    '4::Close-Grip Bench Press': [
+      { date: D.may21, sets: [s(11,75), s(10,70), s(10,70)] },
+      { date: D.jun14, sets: [s(10,70), s(10,70), s(8,70)] },
+      { date: D.jun19, sets: [s(9,70), s(10,70), s(10,70)] },
+    ],
+    '4::Cable Biceps Curl': [
+      { date: D.may21, sets: [s(15,55), s(15,49), s(15,49)], prog: { kind: 'weight', toWeight: 55 } },
+      { date: D.jun7,  sets: [s(15,55), s(15,55), s(13,55)] },
+      { date: D.jun14, sets: [s(15,55), s(15,55), s(15,55)] },
+      { date: D.jun19, sets: [s(15,55), s(15,55), s(13,55)] },
+    ],
+    '4::Reverse Curl': [
+      { date: D.may21, sets: [s(12,22.5), s(11,20), s(10,20)] },
+      { date: D.jun7,  sets: [s(14,22.5), s(12,22.5), s(12,22.5)] },
+      { date: D.jun14, sets: [s(14,22.5), s(12,22.5), s(12,22.5)] },
+      { date: D.jun19, sets: [s(12,22.5), s(12,22.5), s(12,22.5)] },
+    ],
+  };
+
+  // ── Merge ───────────────────────────────────────────────────
+  // Adds any seeded session whose (exercise, calendar-date) pair is not already
+  // present in the store. Never edits or removes existing sessions. Mutates and
+  // returns the same store object.
+  function dayKey(iso) {
+    // Deterministic UTC calendar day — independent of the viewer's timezone.
+    return String(iso).slice(0, 10);
+  }
+
+  function mergeSeedHistory(store) {
+    if (!store || !store.sessions) return store;
+    if (typeof seedHistory === 'undefined') return store;
+
+    const idFor = (typeof window !== 'undefined' && window.cryptoId)
+      ? window.cryptoId
+      : (seed => seed); // defensive fallback
+
+    for (const key in seedHistory) {
+      const sep = key.indexOf('::');
+      const dayId = key.slice(0, sep);
+      const name = key.slice(sep + 2);
+      const exId = idFor(`d${dayId}_${name}`);
+
+      // Resolve the live exercise def (for unit / target / status). If the
+      // exercise isn't present we still seed raw sessions so nothing is lost.
+      let ex = null;
+      for (const d of (store.days || [])) {
+        const found = (d.exercises || []).find(e => e.id === exId);
+        if (found) { ex = found; break; }
+      }
+
+      const existing = store.sessions[exId] || [];
+      const seenDays = new Set(existing.map(se => dayKey(se.date)));
+
+      const additions = [];
+      for (const h of seedHistory[key]) {
+        if (seenDays.has(dayKey(h.date))) continue; // user/seed data already here
+        const sets = h.sets.map(([reps, weight]) => ({ reps, weight }));
+        const status = ex && window.deriveStatus ? window.deriveStatus(ex) : 'developing';
+        const entry = {
+          date: h.date,
+          sets,
+          note: h.note || '',
+          status,
+          unit: ex ? ex.unit : 'lbs',
+          target: ex && window.targetString ? window.targetString(ex) : '',
+          seeded: true,
+        };
+        if (h.prog) entry.progression = h.prog;
+        additions.push(entry);
+      }
+
+      if (additions.length) {
+        store.sessions[exId] = [...existing, ...additions]
+          .sort((a, b) => new Date(a.date) - new Date(b.date));
+      }
+    }
+    return store;
+  }
+
+  window.seedHistory = seedHistory;
+  window.mergeSeedHistory = mergeSeedHistory;
+})();
+</script>
+<script type="text/babel" data-presets="react">
+// tracker.jsx — exercise card, logging, progression, notes, history
+// ─────────────────────────────────────────────────────────────
+const { useState, useEffect, useRef, useMemo, useCallback, Fragment } = React;
+
+// ── Small visual primitives ────────────────────────────────────
+function StatusBadge({ status }) {
+  const map = {
+    developing: { label: 'Developing', fg: '#FFFFFF', bg: 'var(--st-dev)',     dot: 'rgba(255,255,255,0.85)' },
+    stable:     { label: 'Stable',     fg: '#FFFFFF', bg: 'var(--st-stable)',  dot: 'rgba(255,255,255,0.9)' },
+    plateau:    { label: 'Plateau',    fg: '#FFFFFF', bg: 'var(--st-plateau)', dot: 'rgba(255,255,255,0.9)' },
+  };
+  const s = map[status] || map.developing;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+      textTransform: 'uppercase', color: s.fg, fontWeight: 600,
+      padding: '5px 10px', borderRadius: 4,
+      background: s.bg,
+      lineHeight: 1,
+    }}>
+      <span style={{ width: 5, height: 5, borderRadius: 999, background: s.dot }} />
+      {s.label}
+    </span>
+  );
+}
+
+function HairlineHeading({ children, kicker }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingBottom: 6 }}>
+      <span style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+        textTransform: 'uppercase', color: 'var(--muted)',
+      }}>{kicker}</span>
+      <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
+      {children}
+    </div>
+  );
+}
+
+// ── Deterministic next-session verdict (v4) ────────────────────
+// Exactly three outcomes, shown inline the moment a set is logged.
+const VERDICT_TONE = {
+  repeat:   { fg: 'var(--st-plateau)', bg: 'var(--st-plateau-bg)', label: 'Repeat weight' },
+  hold:     { fg: 'var(--muted)',      bg: 'var(--paper-2)',       label: 'In range' },
+  increase: { fg: 'var(--st-stable)',  bg: 'var(--st-stable-bg)',  label: 'Range ↑' },
+};
+
+function VerdictLine({ verdict, style }) {
+  if (!verdict) return null;
+  const t = VERDICT_TONE[verdict.kind] || VERDICT_TONE.hold;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, ...style }}>
+      <span style={{
+        fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+        textTransform: 'uppercase', fontWeight: 700, color: t.fg, background: t.bg,
+        padding: '4px 8px', borderRadius: 4, lineHeight: 1, flexShrink: 0,
+      }}>{t.label}</span>
+      <span style={{ fontSize: 13, color: 'var(--ink-2)', fontWeight: 500, lineHeight: 1.35 }}>{verdict.text}</span>
+    </div>
+  );
+}
+
+// ── Rep / Weight tap targets ───────────────────────────────────
+function ChoiceRow({ label, options, value, onPick, formatter, unit, optimum, allowCustom, customOptions, onRemoveOption, onTyping, onCommitCustom }) {
+  const [customStr, setCustomStr] = useState('');
+  const isCustom = value != null && !options.includes(value);
+
+  // Keep custom field in sync when value is set externally to a non-preset
+  useEffect(() => {
+    if (isCustom) setCustomStr(String(value));
+  }, [value, isCustom]);
+
+  const commitCustom = (raw) => {
+    const v = parseFloat(raw);
+    if (Number.isFinite(v) && v >= 0) {
+      onPick(v);
+      // Persist the typed value as a saved preset right away, so it becomes a
+      // tappable button for the remaining sets in this same session (not only
+      // on the next open). No-op if it already matches a default/preset option.
+      if (onCommitCustom && !options.includes(v)) onCommitCustom(v);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+        textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8,
+      }}>{label}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        {options.map(opt => {
+          const sel = value === opt;
+          const inRange = optimum && opt >= optimum[0] && opt <= optimum[1];
+          const isPreset = customOptions && customOptions.has(opt);
+          const btn = (
+            <button
+              onClick={() => { onPick(opt); setCustomStr(''); }}
+              className="tap num"
+              style={{
+                minWidth: 52, padding: '0 12px', height: 44,
+                borderRadius: 6,
+                background: sel ? 'var(--ink)' : 'transparent',
+                color: sel ? 'var(--paper)' : (inRange ? 'var(--ink)' : 'var(--muted)'),
+                border: sel ? '1px solid var(--ink)' : `1px ${isPreset ? 'dashed' : 'solid'} ${inRange ? 'var(--hair)' : 'var(--hair-2)'}`,
+                fontSize: 15, fontWeight: 500,
+                transition: 'background 120ms ease, color 120ms ease, border-color 120ms ease',
+              }}
+            >
+              {formatter ? formatter(opt) : opt}{unit && !sel ? <span style={{ marginLeft: 3, fontSize: 11, color: 'inherit', opacity: 0.6 }}>{unit}</span> : ''}
+            </button>
+          );
+          if (isPreset && onRemoveOption) {
+            return (
+              <span key={opt} style={{ position: 'relative', display: 'inline-flex' }}>
+                {btn}
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRemoveOption(opt); }}
+                  aria-label="Remove saved weight"
+                  className="tap"
+                  style={{
+                    position: 'absolute', top: -7, right: -7,
+                    width: 20, height: 20, minHeight: 20, borderRadius: 999,
+                    background: 'var(--ink)', color: 'var(--paper)',
+                    fontSize: 12, lineHeight: 1, padding: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    border: '2px solid var(--paper)',
+                  }}
+                >×</button>
+              </span>
+            );
+          }
+          return <Fragment key={opt}>{btn}</Fragment>;
+        })}
+        {allowCustom && (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center',
+            height: 44, padding: '0 6px 0 10px',
+            border: `1px solid ${isCustom ? 'var(--ink)' : 'var(--hair-2)'}`,
+            borderRadius: 6,
+            background: isCustom ? 'var(--ink)' : 'transparent',
+            transition: 'background 120ms ease, border-color 120ms ease',
+          }}>
+            <input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              placeholder="Custom"
+              value={customStr}
+              onFocus={() => onTyping && onTyping(true)}
+              onChange={e => {
+                setCustomStr(e.target.value);
+                const v = parseFloat(e.target.value);
+                if (Number.isFinite(v) && v >= 0) onPick(v);
+              }}
+              onBlur={e => { onTyping && onTyping(false); commitCustom(e.target.value); }}
+              className="num"
+              style={{
+                width: 72, height: '100%',
+                border: 'none', outline: 'none', background: 'transparent',
+                fontSize: 16, fontWeight: 500,
+                color: isCustom ? 'var(--paper)' : 'var(--ink)',
+                MozAppearance: 'textfield',
+              }}
+            />
+            {unit && (
+              <span style={{
+                fontSize: 11,
+                color: isCustom ? 'rgba(250,250,250,0.7)' : 'var(--muted)',
+                marginLeft: 2, marginRight: 4,
+              }}>{unit}</span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Logging panel (one row per set) ───────────────────────────
+function LoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustomWeight, onAddCustomWeight }) {
+  const repOptions = useMemo(() => repButtonRange(ex), [ex]);
+  const repWord = ex.repUnit || 'reps';
+  const repLabel = repWord.charAt(0).toUpperCase() + repWord.slice(1);
+
+  // Custom weights typed during THIS session. Tracked locally so a value entered
+  // on one set shows up as a tappable preset on the remaining sets immediately —
+  // without waiting on a parent re-read. Merged with any persisted presets.
+  const [sessionCustoms, setSessionCustoms] = useState([]);
+  const allCustoms = useMemo(() => {
+    const s = new Set();
+    (customWeights || []).forEach(w => { if (Number.isFinite(w) && w >= 0) s.add(w); });
+    sessionCustoms.forEach(w => { if (Number.isFinite(w) && w >= 0) s.add(w); });
+    return [...s];
+  }, [customWeights, sessionCustoms]);
+
+  const weightOptions = useMemo(() => {
+    const set = new Set(weightButtonRange(ex));
+    allCustoms.forEach(w => set.add(w));
+    return [...set].sort((a, b) => a - b);
+  }, [ex, allCustoms]);
+  const customWeightSet = useMemo(() => new Set(allCustoms), [allCustoms]);
+
+  // A typed custom weight is committed: surface it on the remaining sets right
+  // away (local state) AND persist it so it survives to the next open.
+  const handleCommitCustom = (v) => {
+    setSessionCustoms(prev => prev.includes(v) ? prev : [...prev, v]);
+    if (onAddCustomWeight) onAddCustomWeight(v);
+  };
+
+  const bodyweight = ex.unit === '' && ex.weightMin === 0 && ex.weightMax === 0;
+  const initialSet = () => ({ reps: null, weight: bodyweight ? 0 : null });
+  const [sets, setSets] = useState(() => Array.from({ length: ex.sets }, initialSet));
+  const [activeSet, setActiveSet] = useState(0);
+  // True while a text field is focused. Gates BOTH the auto-advance and the
+  // Save action so nothing fires mid-typing in the custom-weight field.
+  const [typing, setTyping] = useState(false);
+
+  const updateSet = (i, patch) => {
+    setSets(prev => prev.map((s, idx) => idx === i ? { ...s, ...patch } : s));
+  };
+
+  const allLogged = sets.every(s => s.reps != null && s.weight != null);
+
+  // Auto-advance to next set after both reps + weight chosen
+  useEffect(() => {
+    if (typing) return; // never advance while the user is typing a weight
+    const s = sets[activeSet];
+    if (s && s.reps != null && s.weight != null && activeSet < sets.length - 1) {
+      const t = setTimeout(() => setActiveSet(activeSet + 1), 220);
+      return () => clearTimeout(t);
+    }
+  }, [sets, activeSet, typing]);
+
+  return (
+    <div className="reveal" style={{ paddingTop: 18 }}>
+      <HairlineHeading kicker="Log session" />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 22, paddingTop: 16 }}>
+        {sets.map((s, i) => {
+          const isActive = i === activeSet;
+          const done = s.reps != null && s.weight != null;
+          return (
+            <div key={i} className={isActive ? 'reveal' : ''}
+              style={{
+                opacity: isActive || done ? 1 : 0.42,
+                transition: 'opacity 200ms ease',
+              }}>
+              <button
+                onClick={() => setActiveSet(i)}
+                style={{
+                  display: 'flex', alignItems: 'baseline', gap: 10, width: '100%',
+                  textAlign: 'left', padding: '0 0 10px',
+                }}>
+                <span style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                  textTransform: 'uppercase', color: 'var(--muted)',
+                }}>Set {i + 1}</span>
+                {done && (
+                  <span className="num" style={{ fontSize: 13, color: 'var(--ink-2)' }}>
+                    {s.reps} {repWord} · {fmt(s.weight)}{ex.unit ? ' ' + ex.unit : ''}
+                  </span>
+                )}
+                <span style={{ flex: 1, height: 1, background: 'var(--hair-2)', alignSelf: 'center' }} />
+              </button>
+              {isActive && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingTop: 4 }}>
+                  <ChoiceRow
+                    label={repLabel}
+                    options={repOptions}
+                    value={s.reps}
+                    onPick={(v) => updateSet(i, { reps: v })}
+                    optimum={[ex.repMin, ex.repMax]}
+                  />
+                  {!bodyweight && (
+                    <ChoiceRow
+                      label={`Weight ${ex.unit ? `(${ex.unit})` : ''}`.trim()}
+                      options={weightOptions}
+                      value={s.weight}
+                      onPick={(v) => updateSet(i, { weight: v })}
+                      formatter={fmt}
+                      optimum={[ex.weightMin, ex.weightMax]}
+                      allowCustom
+                      unit={ex.unit}
+                      customOptions={customWeightSet}
+                      onRemoveOption={onRemoveCustomWeight}
+                      onCommitCustom={handleCommitCustom}
+                      onTyping={setTyping}
+                    />
+                  )}
+                </div>
+              )}
+              {done && (
+                <VerdictLine verdict={nextSessionVerdict(ex, s)} style={{ marginTop: 10 }} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, paddingTop: 24 }}>
+        <button onClick={onCancel} className="tap" style={{
+          flex: 1, height: 48, borderRadius: 6,
+          border: '1px solid var(--hair)', color: 'var(--ink-2)',
+          fontSize: 14, fontWeight: 500,
+        }}>
+          Cancel
+        </button>
+        <button
+          onClick={() => { if (typing) return; if (allLogged) onDone(sets); }}
+          disabled={!allLogged}
+          className="tap" style={{
+          flex: 2, height: 48, borderRadius: 6,
+          background: allLogged ? 'var(--accent)' : 'var(--paper-2)',
+          color: allLogged ? '#FFFFFF' : 'var(--muted-2)',
+          fontSize: 14, fontWeight: 600, letterSpacing: '0.02em',
+          cursor: allLogged ? 'pointer' : 'not-allowed',
+          transition: 'background 200ms ease, color 200ms ease',
+        }}>
+          {allLogged ? 'Save Session' : `${sets.filter(s => s.reps != null && s.weight != null).length} / ${sets.length} sets logged`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+//  POST-LOG PROGRESSION FLOW (v3)
+//  After a session is saved, a small queue of prompts appears below the
+//  card — one at a time — driven by buildPrompts(). Each is an explicit
+//  confirm. When the queue empties, the collapsed summary card remains.
+// ══════════════════════════════════════════════════════════════
+
+// What the weight range becomes after one standard increment.
+function incrementPreview(ex) {
+  const step = incrementFor(ex);
+  const newMin = roundToStep(ex.weightMin + step, step);
+  const newMax = roundToStep(ex.weightMax + step, step);
+  const unit = ex.unit ? ' ' + ex.unit : '';
+  const range = newMin === newMax ? fmt(newMax) : `${fmt(newMin)}–${fmt(newMax)}`;
+  return { step, newMin, newMax, label: `${range}${unit}` };
+}
+
+// Shared shell for every prompt panel.
+function PromptShell({ kicker, accent = 'var(--accent)', tint = 'var(--accent-tint)', children }) {
+  return (
+    <div className="reveal" style={{
+      marginTop: 16, padding: '16px 18px 16px',
+      background: tint,
+      borderLeft: `3px solid ${accent}`,
+      borderRadius: 4,
+    }}>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em',
+        textTransform: 'uppercase', color: accent, marginBottom: 9, fontWeight: 600,
+      }}>{kicker}</div>
+      {children}
+    </div>
+  );
+}
+
+function PromptActions({ confirmLabel, onConfirm, onDismiss, dismissLabel = 'Not now' }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+      <button onClick={onDismiss} className="tap" style={{
+        flex: 1, height: 44, borderRadius: 6,
+        color: 'var(--muted)', fontSize: 13, fontWeight: 500,
+      }}>{dismissLabel}</button>
+      <button onClick={onConfirm} className="tap" style={{
+        flex: 2, height: 44, borderRadius: 6,
+        background: 'var(--accent)', color: '#FFFFFF',
+        fontSize: 13, fontWeight: 600, letterSpacing: '0.02em',
+      }}>{confirmLabel}</button>
+    </div>
+  );
+}
+
+function PromptHeadline({ children }) {
+  return (
+    <div style={{
+      fontFamily: 'var(--font-sans)', fontSize: 19, lineHeight: 1.3,
+      color: 'var(--ink)', fontWeight: 500, letterSpacing: '-0.01em',
+    }}>{children}</div>
+  );
+}
+
+// 1 — Dynamic weight detection
+function DynamicWeightPrompt({ ex, x, newFloor, onConfirm, onDismiss }) {
+  const unit = ex.unit ? ' ' + ex.unit : '';
+  return (
+    <PromptShell kicker="Above your range">
+      <PromptHeadline>
+        You logged <span className="num" style={{ color: 'var(--accent)' }}>{fmt(x)}{unit}</span> — above your
+        current target range. Update your working range to <span className="num">{fmt(x)}{unit}</span>?
+      </PromptHeadline>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
+        marginTop: 8, letterSpacing: '0.04em',
+      }}>New range → {fmt(newFloor)}–{fmt(x)}{unit} · same spread</div>
+      <PromptActions confirmLabel={`Update to ${fmt(x)}${unit}`} onConfirm={onConfirm} onDismiss={onDismiss} dismissLabel="Keep range" />
+    </PromptShell>
+  );
+}
+
+// 2 — Double progression
+function ProgressionPrompt({ ex, onConfirm, onDismiss }) {
+  const bw = ex.unit === '' && ex.weightMin === 0 && ex.weightMax === 0;
+  const atRepCap = ex.repMax >= ex.repCap;
+  const prev = bw ? null : incrementPreview(ex);
+  return (
+    <PromptShell kicker="Criteria met">
+      <PromptHeadline>
+        Progression criteria met. <span style={{ color: 'var(--accent)' }}>Increase load?</span>
+      </PromptHeadline>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
+        marginTop: 8, letterSpacing: '0.04em',
+      }}>
+        {bw
+          ? `Add a rep → target ${Math.min(ex.repCap, ex.repMax + 1)} ${ex.repUnit || 'reps'}`
+          : `+${fmt(prev.step)}${ex.unit ? ' ' + ex.unit : ''} → ${prev.label}${atRepCap ? ' · reps stay at cap' : ' · reps reset to floor'}`}
+      </div>
+      <PromptActions confirmLabel={bw ? 'Add a rep' : 'Increase load'} onConfirm={onConfirm} onDismiss={onDismiss} dismissLabel="Hold" />
+    </PromptShell>
+  );
+}
+
+// 3 — Overload signal (exceeded rep ceiling by ≥2)
+function OverloadPrompt({ ex, set, excess, onConfirm, onDismiss }) {
+  const prev = incrementPreview(ex);
+  return (
+    <PromptShell kicker="Load may be light">
+      <PromptHeadline>
+        You exceeded your rep target by <span className="num" style={{ color: 'var(--accent)' }}>{excess}</span> rep{excess === 1 ? '' : 's'} on
+        set <span className="num">{set}</span>. Load may be too light. <span style={{ color: 'var(--accent)' }}>Increase weight now?</span>
+      </PromptHeadline>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
+        marginTop: 8, letterSpacing: '0.04em',
+      }}>+{fmt(prev.step)}{ex.unit ? ' ' + ex.unit : ''} → {prev.label}</div>
+      <PromptActions confirmLabel="Increase weight" onConfirm={onConfirm} onDismiss={onDismiss} dismissLabel="Not yet" />
+    </PromptShell>
+  );
+}
+
+// 5 — Plateau suggestions: four tappable choices, each logged as a note.
+const PLATEAU_CHOICES = [
+  { text: 'Add one set', flag: false },
+  { text: 'Slow the eccentric to 3 seconds', flag: false },
+  { text: 'Reduce rest time by 30 seconds', flag: false },
+  { text: 'Genuine plateau — consider a deload', flag: true },
+];
+
+function PlateauSuggestions({ reason, onChoose, onDismiss, compact }) {
+  const intro = reason === 'identical'
+    ? 'Three identical sessions in a row.'
+    : 'Reps and weight are both maxed at the rep cap.';
+  return (
+    <div className={compact ? '' : 'reveal'} style={{
+      marginTop: compact ? 12 : 16, padding: '14px 16px 12px',
+      background: 'var(--st-plateau-bg)',
+      borderLeft: '3px solid var(--st-plateau)',
+      borderRadius: 4,
+    }}>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em',
+        textTransform: 'uppercase', color: 'var(--st-plateau)', marginBottom: 7, fontWeight: 600,
+      }}>Plateau detected</div>
+      <div style={{ fontSize: 13.5, color: 'var(--ink-2)', lineHeight: 1.5, fontWeight: 500, marginBottom: 12 }}>
+        {intro} Pick one to log as a note:
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {PLATEAU_CHOICES.map((c, i) => (
+          <button
+            key={i}
+            onClick={() => onChoose(c.text, c.flag)}
+            className="tap"
+            style={{
+              width: '100%', minHeight: 46, padding: '10px 14px',
+              textAlign: 'left', justifyContent: 'flex-start',
+              borderRadius: 6, background: 'var(--paper)',
+              border: `1px solid ${c.flag ? 'var(--st-plateau)' : 'var(--hair)'}`,
+              fontSize: 14, fontWeight: 500,
+              color: c.flag ? 'var(--st-plateau)' : 'var(--ink)',
+            }}
+          >
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)',
+              marginRight: 12, fontWeight: 600,
+            }}>{i + 1}</span>
+            {c.text}
+          </button>
+        ))}
+      </div>
+      {onDismiss && (
+        <button onClick={onDismiss} className="tap" style={{
+          width: '100%', height: 36, marginTop: 8,
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+          color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 600,
+        }}>Dismiss</button>
+      )}
+    </div>
+  );
+}
+
+// Queue driver — shows prompts one at a time, then closes.
+function PostLogFlow({ ex, prompts, onApplyIncrement, onUpdateRange, onPlateauChoice, onClose }) {
+  const [idx, setIdx] = useState(0);
+  const advance = () => {
+    if (idx + 1 >= prompts.length) onClose();
+    else setIdx(idx + 1);
+  };
+  const p = prompts[idx];
+  if (!p) return null;
+
+  if (p.type === 'dynamicWeight') {
+    return (
+      <DynamicWeightPrompt
+        ex={ex} x={p.x} newFloor={p.newFloor}
+        onConfirm={() => { onUpdateRange(ex.id, p.x); advance(); }}
+        onDismiss={advance}
+      />
+    );
+  }
+  if (p.type === 'overload') {
+    return (
+      <OverloadPrompt
+        ex={ex} set={p.set} excess={p.excess}
+        onConfirm={() => { onApplyIncrement(ex.id, 'overload'); advance(); }}
+        onDismiss={advance}
+      />
+    );
+  }
+  if (p.type === 'progression') {
+    return (
+      <ProgressionPrompt
+        ex={ex}
+        onConfirm={() => { onApplyIncrement(ex.id, 'progression'); advance(); }}
+        onDismiss={advance}
+      />
+    );
+  }
+  if (p.type === 'plateau') {
+    return (
+      <PlateauSuggestions
+        reason={p.reason}
+        onChoose={(text, flag) => { onPlateauChoice(ex.id, text, flag); advance(); }}
+        onDismiss={advance}
+      />
+    );
+  }
+  return null;
+}
+
+// Collapsed post-session summary card — the deterministic next-session verdict.
+function SummaryCard({ summary }) {
+  const [open, setOpen] = useState(false);
+  if (!summary || !summary.verdict) return null;
+  const v = summary.verdict;
+  const tone = VERDICT_TONE[v.kind] || VERDICT_TONE.hold;
+  const perSet = summary.perSet || [];
+
+  return (
+    <div style={{
+      marginTop: 14, borderRadius: 8,
+      border: '1px solid var(--hair)', overflow: 'hidden',
+      background: 'var(--paper)',
+    }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="tap"
+        style={{
+          width: '100%', minHeight: 44, padding: '10px 14px',
+          display: 'flex', alignItems: 'center', gap: 10,
+          justifyContent: 'flex-start', textAlign: 'left',
+        }}
+      >
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.10em',
+          textTransform: 'uppercase', color: tone.fg, fontWeight: 700,
+          padding: '4px 8px', borderRadius: 4, background: tone.bg, flexShrink: 0,
+        }}>{tone.label}</span>
+        <span style={{
+          flex: 1, minWidth: 0, fontSize: 13, color: 'var(--ink-2)', fontWeight: 500,
+        }}>{v.text}</span>
+        {perSet.length > 0 && (
+          <span style={{
+            display: 'inline-block', color: 'var(--muted-2)', fontSize: 11,
+            transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease',
+          }}>▾</span>
+        )}
+      </button>
+      {open && perSet.length > 0 && (
+        <div className="reveal" style={{
+          padding: '4px 14px 16px', display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
+          {perSet.map((pv, i) => (
+            <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--muted-2)',
+                letterSpacing: '0.08em', width: 30, flexShrink: 0, textTransform: 'uppercase',
+              }}>S{i + 1}</span>
+              <VerdictLine verdict={pv} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SummaryLine({ n, label, value, accent }) {
+  return (
+    <div style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
+      <span style={{
+        fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--muted-2)',
+        letterSpacing: '0.08em', width: 16, flexShrink: 0, paddingTop: 2,
+      }}>{n}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+          textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 2,
+        }}>{label}</div>
+        <div style={{
+          fontSize: 14, lineHeight: 1.4, fontWeight: 500,
+          color: accent || 'var(--ink-2)',
+        }}>{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function Stepper({ label, value, step, min, max, onChange, unit, disabled, hint }) {
+  const dec = () => {
+    if (disabled) return;
+    const v = Math.max(min ?? -Infinity, value - step);
+    onChange(v);
+  };
+  const inc = () => {
+    if (disabled) return;
+    const v = Math.min(max ?? Infinity, value + step);
+    onChange(v);
+  };
+  return (
+    <div style={{ flex: 1 }}>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+        textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6,
+      }}>{label}</div>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 0,
+        border: '1px solid var(--hair)', borderRadius: 6,
+        background: 'var(--paper)', height: 48,
+        opacity: disabled ? 0.4 : 1,
+      }}>
+        <button onClick={dec} className="tap" style={{ width: 44, height: '100%', fontSize: 20, color: 'var(--ink-2)' }} disabled={disabled}>−</button>
+        <div className="num" style={{
+          flex: 1, textAlign: 'center', fontSize: 20, color: 'var(--ink)', fontWeight: 600,
+          letterSpacing: '-0.01em',
+        }}>
+          {fmt(value)}{unit ? <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 4, fontWeight: 400 }}>{unit}</span> : ''}
+        </div>
+        <button onClick={inc} className="tap" style={{ width: 44, height: '100%', fontSize: 20, color: 'var(--ink-2)' }} disabled={disabled}>+</button>
+      </div>
+      {hint && (
+        <div style={{
+          fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
+          marginTop: 6, letterSpacing: '0.04em',
+        }}>{hint}</div>
+      )}
+    </div>
+  );
+}
+
+// ── Persistent Exercise Note ───────────────────────────────────
+// One note per exercise, persisted across sessions.
+// Saved explicitly via Save button. Deleted explicitly via Delete.
+// Never auto-cleared.
+function ExerciseNote({ note, onSave, onDelete }) {
+  const hasNote = !!(note && note.text);
+  const [editing, setEditing] = useState(!hasNote ? false : false); // closed by default
+  const [draft, setDraft] = useState(hasNote ? note.text : '');
+  const [justSaved, setJustSaved] = useState(false);
+
+  // If the persistent note changes externally, sync the draft
+  useEffect(() => {
+    setDraft(hasNote ? note.text : '');
+  }, [note && note.text]);
+
+  if (!hasNote && !editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        className="tap"
+        style={{
+          marginTop: 12,
+          padding: '0 14px', height: 36, borderRadius: 6,
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+          color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 600,
+        }}
+      >
+        + Add note
+      </button>
+    );
+  }
+
+  if (hasNote && !editing) {
+    return (
+      <div style={{
+        marginTop: 14, padding: '12px 14px',
+        background: 'var(--paper-2)', borderRadius: 6,
+        display: 'flex', gap: 12, alignItems: 'flex-start',
+      }}>
+        <div style={{
+          flex: 1, fontSize: 13.5, color: 'var(--ink-2)',
+          lineHeight: 1.55, whiteSpace: 'pre-wrap',
+        }}>
+          {note.text}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+          <button
+            onClick={() => { setDraft(note.text); setEditing(true); }}
+            className="tap"
+            style={{
+              padding: '4px 8px', minHeight: 28,
+              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+              color: 'var(--ink-2)', textTransform: 'uppercase', fontWeight: 600,
+            }}
+          >Edit</button>
+          <button
+            onClick={onDelete}
+            className="tap"
+            style={{
+              padding: '4px 8px', minHeight: 28,
+              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+              color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 600,
+            }}
+          >Delete</button>
+        </div>
+      </div>
+    );
+  }
+
+  // editing
+  return (
+    <div className="reveal" style={{ marginTop: 14 }}>
+      <textarea
+        value={draft}
+        onChange={e => { setDraft(e.target.value); setJustSaved(false); }}
+        placeholder="Form cues, tweaks, things to remember next session…"
+        rows={3}
+        autoFocus
+        style={{
+          width: '100%', padding: 12,
+          border: '1px solid var(--hair)', borderRadius: 6,
+          background: 'var(--paper)', fontSize: 13.5, color: 'var(--ink)',
+          outline: 'none', lineHeight: 1.55,
+        }}
+      />
+      <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+        <button
+          onClick={() => {
+            const text = draft.trim();
+            if (!text) return;
+            onSave(text);
+            setEditing(false);
+            setJustSaved(true);
+          }}
+          disabled={!draft.trim()}
+          className="tap"
+          style={{
+            padding: '0 16px', height: 36, borderRadius: 6,
+            background: draft.trim() ? 'var(--accent)' : 'var(--paper-2)',
+            color: draft.trim() ? '#FFFFFF' : 'var(--muted-2)',
+            fontSize: 12, fontWeight: 600, letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+            cursor: draft.trim() ? 'pointer' : 'not-allowed',
+          }}
+        >
+          Save Note
+        </button>
+        <button
+          onClick={() => {
+            setEditing(false);
+            setDraft(hasNote ? note.text : '');
+          }}
+          className="tap"
+          style={{
+            padding: '0 12px', height: 36, borderRadius: 6,
+            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+            color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 600,
+          }}
+        >
+          Cancel
+        </button>
+        <span style={{ flex: 1 }} />
+        {hasNote && (
+          <button
+            onClick={() => { onDelete(); setEditing(false); setDraft(''); }}
+            className="tap"
+            style={{
+              padding: '0 10px', height: 36,
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+              color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 600,
+            }}
+          >
+            Delete
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Deterministic next-session verdict commit — shared by the card's quick-log
+// path (none anymore) and LiveExerciseView. Persists logged weights as
+// presets, stamps the verdict snapshot, and applies the range-increase
+// outcome exactly once per session. Pure side-effect orchestration — the
+// actual three-state logic lives in nextSessionVerdict() (progression.js).
+function commitSession(ex, sets, { onLog, onApplyIncrement, onAddCustomWeight }) {
+  if (onAddCustomWeight) {
+    sets.forEach(s => {
+      if (s.weight != null && s.weight > 0) onAddCustomWeight(ex.id, s.weight);
+    });
+  }
+  const snapshot = {
+    verdict: governingVerdict(ex, sets),
+    perSet: sets.map(s => nextSessionVerdict(ex, s)),
+    status: deriveStatus(ex),
+  };
+  onLog(ex.id, { sets, summary: snapshot }, deriveStatus(ex));
+  if (sessionRaisesRange(ex, sets)) onApplyIncrement(ex.id);
+}
+
+// ── Exercise card ─────────────────────────────────────────────
+// Tapping anywhere on the card (other than the History toggle or the note
+// editor) opens the exercise in full-screen Live Mode. The card itself no
+// longer hosts the logging UI — it's a glanceable summary + entry point.
+function ExerciseCard({ ex, history, note, onOpenLive, onSaveNote, onDeleteNote }) {
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const cardRef = useRef(null);
+
+  const status = deriveStatus(ex);
+
+  const summary = useMemo(() => {
+    if (!history.length) return null;
+    const last = history[history.length - 1];
+    if (last.summary && last.summary.verdict) return last.summary;
+    return summarize(ex, history);
+  }, [ex, history]);
+
+  const exNotation = ex.notation;
+
+  const openLive = () => {
+    const rect = cardRef.current ? cardRef.current.getBoundingClientRect() : null;
+    onOpenLive(ex.id, rect);
+  };
+
+  return (
+    <article
+      ref={cardRef}
+      onClick={openLive}
+      style={{
+        padding: '22px 22px 20px',
+        borderBottom: '1px solid var(--hair-2)',
+        position: 'relative',
+        cursor: 'pointer',
+      }}
+    >
+      {/* Title row */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h3 style={{
+            margin: 0,
+            fontFamily: 'var(--font-sans)', fontWeight: 600,
+            fontSize: 20, lineHeight: 1.2, color: 'var(--ink)',
+            letterSpacing: '-0.015em', textWrap: 'pretty',
+          }}>
+            {ex.name}
+          </h3>
+          <div style={{
+            marginTop: 6, fontSize: 12, color: 'var(--muted)',
+            display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8,
+            fontWeight: 500,
+          }}>
+            <span className="num">{targetString(ex)}</span>
+            {exNotation && (
+              <span style={{
+                color: 'var(--muted-2)',
+                fontFamily: 'var(--font-mono)', fontSize: 10,
+                letterSpacing: '0.04em',
+              }}>
+                · {exNotation}
+              </span>
+            )}
+          </div>
+        </div>
+        <StatusBadge status={status} />
+      </div>
+
+      {/* Idle action row */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        marginTop: 18,
+      }}>
+        <span
+          className="tap"
+          style={{
+            padding: '0 22px', height: 44, borderRadius: 6,
+            background: 'var(--accent)', color: '#FFFFFF',
+            fontSize: 13, fontWeight: 600, letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Log Session
+        </span>
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={(e) => { e.stopPropagation(); setHistoryOpen(o => !o); }}
+          className="tap"
+          style={{
+            padding: '0 10px', height: 44,
+            fontSize: 11, color: 'var(--muted)',
+            fontFamily: 'var(--font-mono)', letterSpacing: '0.08em',
+            textTransform: 'uppercase', fontWeight: 600,
+          }}
+        >
+          History {history.length ? <span style={{ marginLeft: 6, color: 'var(--ink-2)' }}>{history.length}</span> : ''}
+          <span style={{ marginLeft: 6, display: 'inline-block', transform: historyOpen ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease' }}>▾</span>
+        </button>
+      </div>
+
+      {/* Session summary card (collapsed) */}
+      <SummaryCard summary={summary} />
+
+      {/* Persistent exercise note */}
+      <div onClick={e => e.stopPropagation()}>
+        <ExerciseNote
+          note={note}
+          onSave={(text) => onSaveNote(ex.id, text)}
+          onDelete={() => onDeleteNote(ex.id)}
+        />
+      </div>
+
+      {/* History */}
+      {historyOpen && (
+        <div onClick={e => e.stopPropagation()}>
+          <HistoryView history={history} ex={ex} />
+        </div>
+      )}
+    </article>
+  );
+}
+
+// ── Previous session reference — collapsed chip, tap to expand ───────────
+function PrevSessionChip({ ex, history }) {
+  const [open, setOpen] = useState(false);
+  const last = history.length ? history[history.length - 1] : null;
+  if (!last) return null;
+
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="tap"
+        style={{
+          width: '100%', minHeight: 40, padding: '8px 12px',
+          display: 'flex', alignItems: 'center', gap: 8,
+          justifyContent: 'flex-start', textAlign: 'left',
+          background: 'var(--paper-2)', borderRadius: 6,
+        }}
+      >
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.10em',
+          textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, flexShrink: 0,
+        }}>Last time</span>
+        {!open && (
+          <span className="num" style={{ fontSize: 12.5, color: 'var(--ink-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {last.sets.map((s, j) => `${s.reps}×${fmt(s.weight)}`).join(' · ')}{ex.unit ? ' ' + ex.unit : ''}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--muted-2)',
+          letterSpacing: '0.06em',
+        }}>{shortDate(last.date)}</span>
+        <span style={{ color: 'var(--muted-2)', fontSize: 10, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease' }}>▾</span>
+      </button>
+      {open && (
+        <div className="reveal" style={{ padding: '8px 12px 0' }}>
+          <div className="num" style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6, fontWeight: 500 }}>
+            {last.sets.map((s, j) => (
+              <span key={j}>
+                {s.reps}<span style={{ color: 'var(--muted-2)' }}>×</span>{fmt(s.weight)}
+                {j < last.sets.length - 1 && <span style={{ color: 'var(--muted-2)', margin: '0 6px' }}>·</span>}
+              </span>
+            ))}
+            {ex.unit && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 6 }}>{ex.unit}</span>}
+          </div>
+          {last.note && (
+            <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>“{last.note}”</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Per-exercise settings — inline expand/collapse, explicit Cancel/Save ──
+// Scoped to exactly the exercise that's live. Drafts are local until Save;
+// Cancel discards them. No partial/implicit commits.
+function LiveSettingsPanel({ ex, onSave, onCancel }) {
+  const [draft, setDraft] = useState({
+    name: ex.name, sets: ex.sets, repCap: ex.repCap,
+    repMin: ex.repMin, repMax: ex.repMax,
+    weightMin: ex.weightMin, weightMax: ex.weightMax,
+  });
+
+  const set = (patch) => setDraft(d => ({ ...d, ...patch }));
+
+  return (
+    <div className="reveal" style={{
+      margin: '0 0 18px', padding: '16px 16px 14px',
+      background: 'var(--paper-2)', borderRadius: 8,
+      border: '1px solid var(--hair)',
+    }}>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+        textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700,
+        marginBottom: 12,
+      }}>Exercise settings</div>
+
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+          textTransform: 'uppercase', color: 'var(--muted)',
+        }}>Name</span>
+        <input
+          value={draft.name}
+          onChange={e => set({ name: e.target.value })}
+          style={{
+            height: 40, border: '1px solid var(--hair)', borderRadius: 4,
+            padding: '0 10px', background: 'var(--paper)', fontSize: 15,
+            outline: 'none', fontWeight: 600, color: 'var(--ink)',
+          }}
+        />
+      </label>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <NumField label="Sets" value={draft.sets} min={1} max={10} onChange={v => set({ sets: v })} />
+        <NumField label="Rep cap" value={draft.repCap} min={1} max={100} onChange={v => set({ repCap: v })} />
+        <NumField label="Rep min" value={draft.repMin} min={1} max={draft.repMax} onChange={v => set({ repMin: v })} />
+        <NumField label="Rep max" value={draft.repMax} min={draft.repMin} max={draft.repCap} onChange={v => set({ repMax: v })} />
+        <NumField label={`Wt min (${ex.unit || '—'})`} value={draft.weightMin} step={ex.weightStep} min={0} max={draft.weightMax} onChange={v => set({ weightMin: v })} />
+        <NumField label={`Wt max (${ex.unit || '—'})`} value={draft.weightMax} step={ex.weightStep} min={draft.weightMin} max={9999} onChange={v => set({ weightMax: v })} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+        <button onClick={onCancel} className="tap" style={{
+          flex: 1, height: 44, borderRadius: 6,
+          border: '1px solid var(--hair)', color: 'var(--ink-2)',
+          fontSize: 13, fontWeight: 500,
+        }}>Cancel</button>
+        <button onClick={() => onSave(draft)} className="tap" style={{
+          flex: 1, height: 44, borderRadius: 6,
+          background: 'var(--accent)', color: '#FFFFFF',
+          fontSize: 13, fontWeight: 600, letterSpacing: '0.02em',
+        }}>Save</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Live Exercise Mode — full-screen focused view ─────────────────────────
+// Entered by tapping an exercise card. Owns the entire screen: editable
+// header, previous-session reference, the same set-by-set logging UI, and a
+// settings gear scoped to just this exercise. The day's exercise list keeps
+// running underneath, unmounted-in-place — closing Live Mode returns to it
+// exactly as it was.
+function LiveExerciseView({
+  ex, history, note, customWeights, originRect, onClose,
+  onLog, onApplyIncrement, onUpdateRange, onPlateauChoice,
+  onSaveNote, onDeleteNote, onAddCustomWeight, onRemoveCustomWeight, onUpdateEx,
+}) {
+  const [phase, setPhase] = useState('enter'); // enter | open | leaving
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [justLogged, setJustLogged] = useState(null); // sets just committed, for SummaryCard
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setPhase('open'));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const requestClose = () => {
+    setPhase('leaving');
+    setTimeout(onClose, 240);
+  };
+
+  // Transform-origin transition: starts scaled down + offset toward the
+  // tapped card's position, animates to a full-bleed sheet, and reverses on
+  // close — the "zoom into this card" feel without a layout engine.
+  const cx = originRect ? originRect.left + originRect.width / 2 : window.innerWidth / 2;
+  const cy = originRect ? originRect.top + originRect.height / 2 : window.innerHeight / 2;
+  const vx = window.innerWidth / 2;
+  const vy = window.innerHeight / 2;
+  const dx = cx - vx, dy = cy - vy;
+  const collapsed = phase !== 'open';
+  const sheetStyle = {
+    position: 'fixed', inset: 0, zIndex: 200,
+    background: 'var(--paper)',
+    display: 'flex', flexDirection: 'column',
+    transform: collapsed ? `translate(${dx}px, ${dy}px) scale(0.5)` : 'translate(0, 0) scale(1)',
+    opacity: collapsed ? 0 : 1,
+    transformOrigin: 'center center',
+    transition: 'transform 260ms cubic-bezier(.2,.7,.3,1), opacity 220ms ease',
+    willChange: 'transform, opacity',
+  };
+
+  const summary = useMemo(() => {
+    if (justLogged) {
+      return {
+        verdict: governingVerdict(ex, justLogged),
+        perSet: justLogged.map(s => nextSessionVerdict(ex, s)),
+        status: deriveStatus(ex),
+      };
+    }
+    if (!history.length) return null;
+    const last = history[history.length - 1];
+    if (last.summary && last.summary.verdict) return last.summary;
+    return summarize(ex, history);
+  }, [ex, history, justLogged]);
+
+  const handleDone = (sets) => {
+    commitSession(ex, sets, { onLog, onApplyIncrement, onAddCustomWeight });
+    setJustLogged(sets);
+  };
+
+  const handleSaveSettings = (draft) => {
+    onUpdateEx(ex.id, draft);
+    setSettingsOpen(false);
+  };
+
+  return (
+    <div style={sheetStyle}>
+      {/* Header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '16px 14px 12px', flexShrink: 0,
+        borderBottom: '1px solid var(--hair)',
+      }}>
+        <button onClick={requestClose} aria-label="Back to exercise list" className="tap" style={{
+          width: 40, height: 40, flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--ink-2)',
+        }}>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M12.5 4.5L6 10l6.5 5.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <h2 style={{
+          flex: 1, minWidth: 0, margin: 0,
+          fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 19,
+          color: 'var(--ink)', letterSpacing: '-0.015em',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>{ex.name}</h2>
+        <button onClick={() => setSettingsOpen(o => !o)} aria-label="Exercise settings" className="tap" style={{
+          width: 40, height: 40, flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: settingsOpen ? 'var(--accent)' : 'var(--ink-2)',
+        }}>
+          <svg width="19" height="19" viewBox="0 0 20 20" fill="none">
+            <circle cx="10" cy="10" r="2.6" stroke="currentColor" strokeWidth="1.6" />
+            <path d="M10 1.8v2.1M10 16.1v2.1M3.5 3.5l1.5 1.5M15 15l1.5 1.5M1.8 10h2.1M16.1 10h2.1M3.5 16.5L5 15M15 5l1.5-1.5"
+              stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Body */}
+      <div style={{ flex: 1, overflow: 'auto', padding: '16px 18px 32px' }}>
+        <div className="num" style={{ fontSize: 12.5, color: 'var(--muted)', fontWeight: 500, marginBottom: 14 }}>
+          {targetString(ex)}{ex.notation ? ` · ${ex.notation}` : ''}
+        </div>
+
+        {settingsOpen && (
+          <LiveSettingsPanel
+            ex={ex}
+            onSave={handleSaveSettings}
+            onCancel={() => setSettingsOpen(false)}
+          />
+        )}
+
+        <PrevSessionChip ex={ex} history={history} />
+
+        {justLogged ? (
+          <SummaryCard summary={summary} />
+        ) : (
+          <LoggingPanel
+            ex={ex}
+            customWeights={customWeights}
+            onRemoveCustomWeight={(w) => onRemoveCustomWeight && onRemoveCustomWeight(ex.id, w)}
+            onAddCustomWeight={(w) => onAddCustomWeight && onAddCustomWeight(ex.id, w)}
+            onCancel={requestClose}
+            onDone={handleDone}
+          />
+        )}
+
+        {justLogged && (
+          <button onClick={requestClose} className="tap" style={{
+            width: '100%', height: 48, marginTop: 18, borderRadius: 6,
+            background: 'var(--ink)', color: 'var(--paper)',
+            fontSize: 14, fontWeight: 600, letterSpacing: '0.02em',
+          }}>Back to Day</button>
+        )}
+
+        <HistoryView history={history} ex={ex} />
+      </div>
+    </div>
+  );
+}
+
+// ── History reveal ────────────────────────────────────────────
+function HistoryView({ history, ex }) {
+  if (history.length === 0) {
+    return (
+      <div className="reveal" style={{
+        marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--hair-2)',
+        fontSize: 13, color: 'var(--muted)', fontWeight: 500,
+      }}>
+        No sessions logged yet.
+      </div>
+    );
+  }
+  return (
+    <div className="reveal" style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed var(--hair-2)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {history.slice().reverse().map((s, i) => (
+          <div key={i} style={{ display: 'flex', gap: 14 }}>
+            <div style={{
+              width: 56, flexShrink: 0,
+              fontFamily: 'var(--font-mono)', fontSize: 10,
+              color: 'var(--muted)', letterSpacing: '0.06em',
+              textTransform: 'uppercase', paddingTop: 2, fontWeight: 600,
+            }}>{shortDate(s.date)}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="num" style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6, fontWeight: 500 }}>
+                {s.sets.map((set, j) => (
+                  <span key={j}>
+                    {set.reps}<span style={{ color: 'var(--muted-2)' }}>×</span>{fmt(set.weight)}
+                    {j < s.sets.length - 1 && <span style={{ color: 'var(--muted-2)', margin: '0 6px' }}>·</span>}
+                  </span>
+                ))}
+                {s.unit && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 6 }}>{ex.repUnit && ex.repUnit !== 'reps' ? `${ex.repUnit} × ${s.unit}` : s.unit}</span>}
+              </div>
+              {s.note && (
+                <div style={{
+                  marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)',
+                  lineHeight: 1.5,
+                }}>
+                  “{s.note}”
+                </div>
+              )}
+              {s.progression && (
+                <div style={{
+                  marginTop: 4, fontSize: 10, fontFamily: 'var(--font-mono)',
+                  color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase',
+                  fontWeight: 600,
+                }}>
+                  {s.progression.kind === 'reps'
+                    ? `Progressed → ${s.progression.toReps} reps`
+                    : s.progression.kind === 'range'
+                      ? `Range updated → ${fmt(s.progression.toWeight)}${ex.unit ? ' ' + ex.unit : ''}`
+                    : s.progression.kind === 'weight'
+                      ? `Progressed → ${fmt(s.progression.toWeight)}${ex.unit ? ' ' + ex.unit : ''}`
+                      : (s.progression.toWeight != null && s.progression.toReps != null)
+                        ? `Progressed → ${fmt(s.progression.toWeight)}${ex.unit ? ' ' + ex.unit : ''} × ${s.progression.toReps} reps`
+                        : s.progression.toReps != null
+                          ? `Progressed → ${s.progression.toReps} reps`
+                          : `Progressed → ${fmt(s.progression.toWeight)}${ex.unit ? ' ' + ex.unit : ''}`}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, {
+  StatusBadge, HairlineHeading, ChoiceRow, LoggingPanel,
+  ProgressionPrompt, OverloadPrompt, DynamicWeightPrompt, PlateauSuggestions,
+  PostLogFlow, SummaryCard, PromptShell, Stepper, ExerciseCard, HistoryView, ExerciseNote,
+});
+</script>
+<script type="text/babel" data-presets="react">
+// app.jsx — root app, day tabs, edit mode, JSON import/export
+// ─────────────────────────────────────────────────────────────
+
+const STORAGE_KEY = 'pol_tracker_v1';
+// Stamped onto saved data. NOTE: a version mismatch no longer WIPES your
+// data — loading is non-destructive. The seed (routine definitions + the
+// hardcoded session history) is RECONCILED into whatever is stored: missing
+// exercises are added and missing seeded sessions are merged in by
+// exercise+date, but nothing you've logged is ever overwritten or removed.
+const SEED_VERSION = 4;
+
+// ── Storage layer ─────────────────────────────────────────────
+function loadStore() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // basic shape check
+    if (!parsed.days || !Array.isArray(parsed.days)) return null;
+    if (!parsed.sessions) parsed.sessions = {};
+    if (!parsed.notes) parsed.notes = {};
+    if (!parsed.archive) parsed.archive = [];
+    // Intentionally NO version-based wipe here. Stored sessions are kept
+    // as-is; reconcileStore() brings in any new seed definitions/history.
+    return parsed;
+  } catch (e) {
+    console.warn('Failed to load store:', e);
+    return null;
+  }
+}
+
+// Ensure every seed day/exercise exists in the store WITHOUT touching any
+// exercise that's already there (so user-progressed targets are preserved).
+function reconcileDays(store) {
+  const seedDays = (typeof SEED_STORE !== 'undefined' && SEED_STORE.days) ? SEED_STORE.days : null;
+  if (!seedDays) return store;
+  const byId = new Map((store.days || []).map(d => [d.id, d]));
+  seedDays.forEach(sd => {
+    const existing = byId.get(sd.id);
+    if (!existing) {
+      store.days.push(JSON.parse(JSON.stringify(sd)));
+      return;
+    }
+    const haveIds = new Set(existing.exercises.map(e => e.id));
+    sd.exercises.forEach(se => {
+      if (!haveIds.has(se.id)) existing.exercises.push(JSON.parse(JSON.stringify(se)));
+    });
+  });
+  return store;
+}
+
+// Refresh only the TARGET fields of seeded exercises from the current seed
+// definitions (sets / rep range / weight range / cap / notation). Leaves
+// sessions, notes and custom weights untouched. Runs once per version bump.
+function refreshTargetsFromSeed(store) {
+  const seedDays = (typeof SEED_STORE !== 'undefined' && SEED_STORE.days) ? SEED_STORE.days : null;
+  if (!seedDays) return store;
+  const seedById = new Map();
+  seedDays.forEach(d => d.exercises.forEach(e => seedById.set(e.id, e)));
+  (store.days || []).forEach(d => {
+    d.exercises.forEach(e => {
+      const sd = seedById.get(e.id);
+      if (!sd) return; // user-added exercise — leave alone
+      e.sets = sd.sets;
+      e.repMin = sd.repMin; e.repMax = sd.repMax;
+      e.weightMin = sd.weightMin; e.weightMax = sd.weightMax;
+      e.repCap = sd.repCap;
+      e.weightStep = sd.weightStep;
+      e.unit = sd.unit;
+      e.notation = sd.notation;
+      e.repUnit = sd.repUnit;
+      delete e.plateau; // clear stale plateau flag on refreshed targets
+    });
+  });
+  return store;
+}
+
+// Full non-destructive reconciliation: bring the store up to the current
+// seed (definitions + hardcoded history), keeping all logged data, then
+// stamp the version. Safe to run on every load (idempotent).
+function reconcileStore(store) {
+  const upgrading = store.seedVersion !== SEED_VERSION;
+  reconcileDays(store);
+  // One-time, on a version bump only: align targets with the latest seed so
+  // existing installs reflect the new (June) progression. Never re-runs once
+  // stamped, so any future in-app progression you make is preserved.
+  if (upgrading) refreshTargetsFromSeed(store);
+  if (typeof mergeSeedHistory === 'function') mergeSeedHistory(store);
+  store.seedVersion = SEED_VERSION;
+  return store;
+}
+
+function saveStore(store) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); }
+  catch (e) { console.warn('Save failed:', e); }
+}
+
+function freshStore() {
+  // Prefer the seeded pre-loaded state if available. Falls back to a
+  // bare-routine clone of DEFAULT_ROUTINE if seed didn't load for any reason.
+  const seed = (typeof SEED_STORE !== 'undefined') ? SEED_STORE : null;
+  const base = seed ? JSON.parse(JSON.stringify(seed)) : {
+    days: JSON.parse(JSON.stringify(DEFAULT_ROUTINE.days)),
+    sessions: {},
+    notes: {},
+    archive: [],
+  };
+  // Seed the hardcoded session history onto the fresh routine.
+  return reconcileStore(base);
+}
+
+// ── Custom-preset storage (normalized per-exercise localStorage keys) ──
+// Presets are stored OUTSIDE the main store blob, one localStorage entry per
+// exercise, under the key  presets_<normalizeKey(name)>.  normalizeKey() is
+// applied identically on every read and write so the same name always maps to
+// the same key.
+function normalizeKey(name) {
+  return String(name).toLowerCase().replace(/ /g, '_');
+}
+
+function presetStorageKey(name) {
+  return 'presets_' + normalizeKey(name);
+}
+
+function readPresets(name) {
+  try {
+    const raw = localStorage.getItem(presetStorageKey(name));
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter(w => Number.isFinite(w)) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function writePresets(name, arr) {
+  try {
+    localStorage.setItem(presetStorageKey(name), JSON.stringify(arr));
+  } catch (e) {
+    console.warn('Preset save failed:', e);
+  }
+}
+
+// ── Root app ─────────────────────────────────────────────────
+function App() {
+  const [store, setStore] = useState(() => {
+    const loaded = loadStore();
+    return loaded ? reconcileStore(loaded) : freshStore();
+  });
+  const [activeDay, setActiveDay] = useState(() => {
+    const saved = parseInt(localStorage.getItem('pol_active_day'), 10);
+    return Number.isFinite(saved) ? saved : 1;
+  });
+  const [editMode, setEditMode] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  // Live Exercise Mode — { exId, originRect } of the tapped card, or null.
+  const [liveEx, setLiveEx] = useState(null);
+  // Bumped on every preset write so the list re-reads from localStorage.
+  const [presetsTick, setPresetsTick] = useState(0);
+
+  // Auto-hide header on scroll-down, reveal on scroll-up.
+  // Direction-based: compares current window.scrollY to previous on every event.
+  const [topBarHidden, setTopBarHidden] = useState(false);
+  const hideGroupRef = useRef(null);
+  const [hideHeight, setHideHeight] = useState(140);
+
+  // Measure the hide-group so we know how far to slide everything up.
+  React.useLayoutEffect(() => {
+    const measure = () => {
+      if (hideGroupRef.current) {
+        setHideHeight(hideGroupRef.current.offsetHeight);
+      }
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [activeDay]);
+
+  useEffect(() => {
+    let last = window.scrollY || 0;
+    let ticking = false;
+
+    const update = () => {
+      const y = Math.max(0, window.scrollY || 0);
+      const dy = y - last;
+
+      // Always reveal near the top of the page
+      if (y < 40) {
+        setTopBarHidden(false);
+      } else if (dy > 6) {
+        // Scrolling down — hide
+        setTopBarHidden(true);
+      } else if (dy < -6) {
+        // Scrolling up — reveal
+        setTopBarHidden(false);
+      }
+      last = y;
+      ticking = false;
+    };
+
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(update);
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Reset to top when switching days
+  useEffect(() => {
+    setTopBarHidden(false);
+    window.scrollTo(0, 0);
+  }, [activeDay]);
+
+  // Persist on every change
+  useEffect(() => { saveStore(store); }, [store]);
+  useEffect(() => { localStorage.setItem('pol_active_day', activeDay); }, [activeDay]);
+
+  const day = store.days.find(d => d.id === activeDay) || store.days[0];
+
+  const updateDays = (mutator) => {
+    setStore(s => ({ ...s, days: mutator(s.days) }));
+  };
+
+  // ── Mutations ────────────────────────────────────────────────
+  const logSession = (exId, { sets, note, summary }, statusAtLog) => {
+    const ex = findEx(store, exId);
+    if (!ex) return;
+    const entry = {
+      date: new Date().toISOString(),
+      sets,
+      note: note || '',
+      status: statusAtLog,
+      unit: ex.unit,
+      target: targetString(ex),
+      summary: summary || null,
+    };
+    setStore(s => ({
+      ...s,
+      sessions: {
+        ...s.sessions,
+        [exId]: [...(s.sessions[exId] || []), entry],
+      },
+    }));
+  };
+
+  // Stamp a progression marker on the most recent session of an exercise.
+  function stampProgression(sessions, exId, marker) {
+    const next = { ...sessions };
+    const sess = next[exId] || [];
+    if (sess.length > 0) {
+      const last = { ...sess[sess.length - 1], progression: marker };
+      next[exId] = [...sess.slice(0, -1), last];
+    }
+    return next;
+  }
+
+  // DOUBLE PROGRESSION / OVERLOAD — apply one standard increment.
+  // Weighted: shift the whole weight range up by the increment (preserving
+  // spread); the rep range is unchanged (reps "reset to floor" behaviorally,
+  // and stay frozen when the rep cap is reached). Bodyweight: add one rep
+  // toward the cap. Clears any plateau flag.
+  const applyIncrement = (exId) => {
+    setStore(s => {
+      let marker = null;
+      const days = s.days.map(d => ({
+        ...d,
+        exercises: d.exercises.map(e => {
+          if (e.id !== exId) return e;
+          const archive = [...(e.archivedTargets || []), {
+            date: new Date().toISOString(),
+            repMin: e.repMin, repMax: e.repMax,
+            weightMin: e.weightMin, weightMax: e.weightMax,
+          }];
+          const bw = isBodyweight(e);
+          if (bw) {
+            const nr = Math.min(e.repCap, e.repMax + 1);
+            marker = { kind: 'reps', toReps: nr };
+            return { ...e, archivedTargets: archive, repMin: nr, repMax: nr, plateau: false };
+          }
+          const step = incrementFor(e);
+          const nMin = roundToStep(e.weightMin + step, step);
+          const nMax = roundToStep(e.weightMax + step, step);
+          marker = { kind: 'weight', toWeight: nMax };
+          return { ...e, archivedTargets: archive, weightMin: nMin, weightMax: nMax, plateau: false };
+        }),
+      }));
+      const sessions = marker ? stampProgression(s.sessions, exId, marker) : s.sessions;
+      return { ...s, days, sessions };
+    });
+  };
+
+  // DYNAMIC WEIGHT DETECTION — the user logged above the recorded ceiling.
+  // Set the ceiling to the logged weight; move the floor to preserve spread.
+  const updateWeightRange = (exId, newMax) => {
+    setStore(s => {
+      const days = s.days.map(d => ({
+        ...d,
+        exercises: d.exercises.map(e => {
+          if (e.id !== exId) return e;
+          const spread = Math.max(0, e.weightMax - e.weightMin);
+          const nMax = newMax;
+          const nMin = Math.max(0, nMax - spread);
+          return {
+            ...e,
+            archivedTargets: [...(e.archivedTargets || []), {
+              date: new Date().toISOString(),
+              repMin: e.repMin, repMax: e.repMax,
+              weightMin: e.weightMin, weightMax: e.weightMax,
+            }],
+            weightMin: nMin,
+            weightMax: nMax,
+            plateau: false,
+          };
+        }),
+      }));
+      const sessions = stampProgression(s.sessions, exId, { kind: 'range', toWeight: newMax });
+      return { ...s, days, sessions };
+    });
+  };
+
+  // PLATEAU CHOICE — log the chosen suggestion as a note on the most recent
+  // session; the "genuine plateau" choice also flags the exercise.
+  const logPlateauChoice = (exId, text, flag) => {
+    setStore(s => {
+      const sessions = { ...s.sessions };
+      const sess = sessions[exId] || [];
+      if (sess.length > 0) {
+        const last = { ...sess[sess.length - 1] };
+        last.note = last.note ? `${last.note} · ${text}` : text;
+        sessions[exId] = [...sess.slice(0, -1), last];
+      }
+      let days = s.days;
+      if (flag) {
+        days = s.days.map(d => ({
+          ...d,
+          exercises: d.exercises.map(e => e.id === exId ? { ...e, plateau: true } : e),
+        }));
+      }
+      return { ...s, days, sessions };
+    });
+  };
+
+  // DELOAD SIGNAL — dismiss the recovery banner until the condition re-arms
+  // (which requires at least one new session to be logged afterwards).
+  const dismissDeload = () => {
+    setStore(s => ({ ...s, deloadDismissedAt: totalSessionCount(s) }));
+  };
+  const saveExerciseNote = (exId, text) => {
+    setStore(s => ({
+      ...s,
+      notes: {
+        ...s.notes,
+        [exId]: { text, savedAt: new Date().toISOString() },
+      },
+    }));
+  };
+
+  const deleteExerciseNote = (exId) => {
+    setStore(s => {
+      const next = { ...s.notes };
+      delete next[exId];
+      return { ...s, notes: next };
+    });
+  };
+
+  // Saved custom weights — per exercise, persisted to a normalized localStorage
+  // key (presets_<normalizeKey(name)>) via readPresets/writePresets. Added when
+  // any weight is logged; removed explicitly by tapping the × on a preset.
+  // Never auto-cleared between sessions.
+  const addCustomWeight = (exId, value) => {
+    if (!Number.isFinite(value) || value <= 0) return;
+    const ex = findEx(store, exId);
+    if (!ex) return;
+    const existing = readPresets(ex.name);
+    if (existing.includes(value)) return;
+    writePresets(ex.name, [...existing, value].sort((a, b) => a - b));
+    setPresetsTick(t => t + 1);
+  };
+
+  const removeCustomWeight = (exId, value) => {
+    const ex = findEx(store, exId);
+    if (!ex) return;
+    const existing = readPresets(ex.name);
+    if (!existing.includes(value)) return;
+    writePresets(ex.name, existing.filter(w => w !== value));
+    setPresetsTick(t => t + 1);
+  };
+
+  const togglePlateau = (exId) => {
+    updateDays(days => days.map(d => ({
+      ...d,
+      exercises: d.exercises.map(e => e.id === exId ? { ...e, plateau: !e.plateau } : e),
+    })));
+  };
+
+  // Edit mode operations
+  const updateEx = (exId, patch) => {
+    updateDays(days => days.map(d => ({
+      ...d,
+      exercises: d.exercises.map(e => e.id === exId ? { ...e, ...patch } : e),
+    })));
+  };
+  const removeEx = (exId) => {
+    updateDays(days => days.map(d => ({
+      ...d,
+      exercises: d.exercises.filter(e => e.id !== exId),
+    })));
+  };
+  const addEx = (dayId) => {
+    const blank = {
+      id: cryptoId(`d${dayId}_new_${Date.now()}`),
+      name: 'New Exercise',
+      sets: 3,
+      repMin: 8, repMax: 10,
+      weightMin: 50, weightMax: 50,
+      repCap: 12,
+      weightStep: 5,
+      unit: 'lbs',
+      notation: null,
+      repUnit: 'reps',
+    };
+    updateDays(days => days.map(d => d.id === dayId ? {
+      ...d, exercises: [...d.exercises, blank],
+    } : d));
+  };
+
+  // DRAG-TO-REORDER — splice the exercises array for a day into a new order.
+  // The store saves on every mutation, so the new order persists across reloads.
+  const moveExercise = (dayIndex, fromIndex, toIndex) => {
+    if (fromIndex === toIndex) return;
+    setStore(s => {
+      const days = s.days.map((d, di) => {
+        if (di !== dayIndex) return d;
+        const exs = [...d.exercises];
+        if (fromIndex < 0 || fromIndex >= exs.length || toIndex < 0 || toIndex >= exs.length) return d;
+        const [moved] = exs.splice(fromIndex, 1);
+        exs.splice(toIndex, 0, moved);
+        return { ...d, exercises: exs };
+      });
+      return { ...s, days };
+    });
+  };
+
+  const resetAll = () => {
+    if (confirm('Reset to default routine? All session history and notes will be cleared.')) {
+      const fresh = freshStore();
+      setStore(fresh);
+    }
+  };
+
+  const importJson = (json) => {
+    try {
+      const parsed = typeof json === 'string' ? JSON.parse(json) : json;
+      if (!parsed.days || !Array.isArray(parsed.days)) throw new Error('Missing "days" array');
+
+      // Normalize each exercise & build name→id remap, preserving history
+      const newDays = parsed.days.map(d => {
+        const oldDay = store.days.find(od => od.id === d.id || od.name === d.name);
+        return {
+          id: d.id ?? (oldDay?.id ?? Math.max(0, ...store.days.map(x => x.id)) + 1),
+          name: d.name || `Day ${d.id}`,
+          subtitle: d.subtitle || '',
+          // Existing exercises (matched by name) keep their current manual
+          // position; brand-new exercises are appended at the bottom.
+          exercises: (() => {
+            const normalize = (e) => {
+              const existing = oldDay?.exercises.find(oe => oe.name === e.name);
+              const id = existing?.id || cryptoId(`d${d.id}_${e.name}`);
+              return {
+                id,
+                name: e.name,
+                sets: e.sets ?? 3,
+                repMin: e.repMin ?? e.reps ?? 8,
+                repMax: e.repMax ?? e.reps ?? 10,
+                weightMin: e.weightMin ?? e.weight ?? 0,
+                weightMax: e.weightMax ?? e.weight ?? 0,
+                repCap: e.repCap ?? 15,
+                weightStep: e.weightStep ?? stepFor(e.name),
+                unit: e.unit ?? 'lbs',
+                notation: e.notation ?? null,
+                repUnit: e.repUnit ?? 'reps',
+              };
+            };
+            const imported = (d.exercises || []).map(normalize);
+            const importedByName = new Map(imported.map(ie => [ie.name, ie]));
+            const ordered = [];
+            const used = new Set();
+            if (oldDay) {
+              for (const oe of oldDay.exercises) {
+                const match = importedByName.get(oe.name);
+                if (match) { ordered.push(match); used.add(oe.name); }
+              }
+            }
+            for (const ie of imported) {
+              if (!used.has(ie.name)) ordered.push(ie);
+            }
+            return ordered;
+          })(),
+        };
+      });
+
+      // Archive removed exercises (their history stays in sessions)
+      const newIds = new Set(newDays.flatMap(d => d.exercises.map(e => e.id)));
+      const archivedNow = store.days.flatMap(d => d.exercises.filter(e => !newIds.has(e.id))
+        .map(e => ({ ...e, archivedAt: new Date().toISOString(), fromDay: d.name })));
+
+      setStore(s => ({
+        ...s,
+        days: newDays,
+        archive: [...(s.archive || []), ...archivedNow],
+      }));
+      setShowImport(false);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  };
+
+  // ── Render ────────────────────────────────────────────────────
+  const exercises = day.exercises;
+
+  return (
+    <div className="app-scroll">
+      {/* Sticky header. The whole header slides up by the hide-group's
+          height when scrolling down, leaving only the day tabs at the top.
+          Uses transform only — no layout changes — so body height stays
+          constant and the scroll listener can't oscillate. */}
+      <header style={{
+        position: 'sticky', top: 0, zIndex: 5,
+        background: 'rgba(250, 250, 250, 0.94)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        transform: topBarHidden ? `translateY(-${hideHeight}px)` : 'translateY(0)',
+        transition: 'transform 280ms cubic-bezier(.4,0,.2,1)',
+        willChange: 'transform',
+      }}>
+        {/* Collapsible group: utility bar + title + subtitle */}
+        <div ref={hideGroupRef}>
+          {/* Utility bar */}
+          <div style={{
+            padding: '18px 22px 0',
+            display: 'flex', alignItems: 'baseline', gap: 10,
+          }}>
+            <div style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.16em',
+              color: 'var(--muted)', textTransform: 'uppercase',
+            }}>Progressive Overload</div>
+            <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
+            <button
+              onClick={() => setShowExport(true)}
+              className="tap"
+              style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+                color: 'var(--ink-2)', textTransform: 'uppercase',
+                padding: '8px 0',
+              }}
+            >Export</button>
+          </div>
+
+          {/* Title + subtitle + Edit button */}
+          <div style={{ padding: '14px 22px 22px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+              <h1 style={{
+                margin: 0, fontFamily: 'var(--font-sans)', fontWeight: 700,
+                fontSize: 36, lineHeight: 1, color: 'var(--ink)', letterSpacing: '-0.03em',
+                whiteSpace: 'nowrap',
+              }}>
+                Day {day.id} <span style={{ color: 'var(--accent)', fontWeight: 700 }}>· {day.name}</span>
+              </h1>
+              <button
+                onClick={() => setEditMode(m => !m)}
+                className="tap"
+                style={{
+                  padding: '0 12px', height: 32, borderRadius: 6, flexShrink: 0,
+                  border: '1px solid var(--hair)',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                  color: editMode ? 'var(--paper)' : 'var(--ink-2)', textTransform: 'uppercase',
+                  background: editMode ? 'var(--ink)' : 'transparent',
+                }}
+              >
+                {editMode ? 'Done' : 'Edit'}
+              </button>
+            </div>
+            <div style={{
+              marginTop: 8, fontSize: 13, color: 'var(--muted)',
+              fontWeight: 500, letterSpacing: '0.005em',
+            }}>
+              {day.subtitle}
+            </div>
+          </div>
+        </div>
+
+        {/* Day tabs — always visible at the top of the visible header */}
+        <div style={{
+          display: 'flex', gap: 0,
+          borderBottom: '1px solid var(--hair)',
+          overflowX: 'auto', scrollbarWidth: 'none',
+        }}>
+          {store.days.map(d => {
+            const active = d.id === activeDay;
+            return (
+              <button
+                key={d.id}
+                onClick={() => setActiveDay(d.id)}
+                className="tap"
+                style={{
+                  padding: '14px 14px 12px', minWidth: 0,
+                  flex: '1 1 auto',
+                  borderBottom: `3px solid ${active ? 'var(--accent)' : 'transparent'}`,
+                  marginBottom: -1,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                  color: active ? 'var(--ink)' : 'var(--muted)',
+                  transition: 'color 160ms ease, border-color 160ms ease',
+                  background: 'transparent',
+                }}
+              >
+                <span style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em',
+                  textTransform: 'uppercase', opacity: active ? 1 : 0.7,
+                  color: active ? 'var(--accent)' : 'var(--muted)',
+                  fontWeight: 600,
+                }}>Day {d.id}</span>
+                <span style={{
+                  fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 600,
+                  letterSpacing: '0.04em', textTransform: 'uppercase',
+                }}>{d.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </header>
+
+      {/* Body — slides up in lockstep with the header so no gap appears
+          between the day tabs and the first card. */}
+      <main style={{
+        paddingBottom: 80,
+        transform: topBarHidden ? `translateY(-${hideHeight}px)` : 'translateY(0)',
+        transition: 'transform 280ms cubic-bezier(.4,0,.2,1)',
+        willChange: 'transform',
+      }}>
+        {!editMode && <DeloadBanner store={store} onDismiss={dismissDeload} />}
+        {!editMode && exercises.map(ex => {
+          // Notes shape may be legacy array (sessionized) — normalize to {text, savedAt}
+          const rawNote = store.notes && store.notes[ex.id];
+          const note = Array.isArray(rawNote)
+            ? (rawNote.length ? { text: rawNote[rawNote.length - 1].text, savedAt: rawNote[rawNote.length - 1].date } : null)
+            : (rawNote && rawNote.text ? rawNote : null);
+          return (
+            <ExerciseCard
+              key={ex.id}
+              ex={ex}
+              history={store.sessions[ex.id] || []}
+              note={note}
+              onOpenLive={(exId, rect) => setLiveEx({ exId, originRect: rect })}
+              onSaveNote={saveExerciseNote}
+              onDeleteNote={deleteExerciseNote}
+            />
+          );
+        })}
+
+        {!editMode && (
+          <ExportLauncherButton onOpen={() => setShowExport(true)} />
+        )}
+
+        {editMode && (
+          <EditPane
+            day={day}
+            dayIndex={store.days.findIndex(d => d.id === day.id)}
+            onUpdate={updateEx}
+            onRemove={removeEx}
+            onAdd={() => addEx(day.id)}
+            onMove={moveExercise}
+            onTogglePlateau={togglePlateau}
+            onShowImport={() => setShowImport(true)}
+            onReset={resetAll}
+          />
+        )}
+      </main>
+
+      {/* Sheets */}
+      {showImport && (
+        <ImportSheet
+          currentJson={JSON.stringify({ days: store.days.map(d => ({
+            id: d.id, name: d.name, subtitle: d.subtitle,
+            exercises: d.exercises.map(e => ({
+              name: e.name, sets: e.sets, repMin: e.repMin, repMax: e.repMax,
+              weightMin: e.weightMin, weightMax: e.weightMax, repCap: e.repCap,
+              weightStep: e.weightStep, unit: e.unit, notation: e.notation, repUnit: e.repUnit,
+            })),
+          })) }, null, 2)}
+          onImport={importJson}
+          onClose={() => setShowImport(false)}
+        />
+      )}
+
+      {showExport && (
+        <ExportSheet
+          store={store}
+          onClose={() => setShowExport(false)}
+        />
+      )}
+
+      {liveEx && (() => {
+        const liveExObj = findEx(store, liveEx.exId);
+        if (!liveExObj) return null;
+        const rawNote = store.notes && store.notes[liveEx.exId];
+        const liveNote = Array.isArray(rawNote)
+          ? (rawNote.length ? { text: rawNote[rawNote.length - 1].text, savedAt: rawNote[rawNote.length - 1].date } : null)
+          : (rawNote && rawNote.text ? rawNote : null);
+        return (
+          <LiveExerciseView
+            ex={liveExObj}
+            history={store.sessions[liveEx.exId] || []}
+            note={liveNote}
+            customWeights={readPresets(liveExObj.name)}
+            originRect={liveEx.originRect}
+            onClose={() => setLiveEx(null)}
+            onLog={logSession}
+            onApplyIncrement={applyIncrement}
+            onUpdateRange={updateWeightRange}
+            onPlateauChoice={logPlateauChoice}
+            onSaveNote={saveExerciseNote}
+            onDeleteNote={deleteExerciseNote}
+            onAddCustomWeight={addCustomWeight}
+            onRemoveCustomWeight={removeCustomWeight}
+            onUpdateEx={updateEx}
+          />
+        );
+      })()}
+    </div>
+  );
+}
+
+function findEx(store, exId) {
+  for (const d of store.days) {
+    const e = d.exercises.find(x => x.id === exId);
+    if (e) return e;
+  }
+  return null;
+}
+
+// ── Deload signal banner ──────────────────────────────────────
+// Surfaces when ≥3 distinct exercises across all four days show a downward
+// rep trend (same weight, fewer reps) over their last two sessions.
+// Dismissible; re-arms only after a new session is logged.
+function DeloadBanner({ store, onDismiss }) {
+  const deload = detectDeload(store);
+  const total = totalSessionCount(store);
+  if (!deload.signal) return null;
+  if (total <= (store.deloadDismissedAt || 0)) return null;
+
+  return (
+    <div style={{ padding: '16px 22px 0' }}>
+      <div className="reveal" style={{
+        display: 'flex', alignItems: 'flex-start', gap: 12,
+        padding: '14px 14px 14px 16px',
+        background: 'var(--st-plateau-bg)',
+        borderLeft: '3px solid var(--st-plateau)',
+        borderRadius: 6,
+      }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em',
+            textTransform: 'uppercase', color: 'var(--st-plateau)', fontWeight: 700,
+            marginBottom: 5,
+          }}>Recovery signal</div>
+          <div style={{ fontSize: 14, color: 'var(--ink-2)', lineHeight: 1.45, fontWeight: 500 }}>
+            {deload.count} exercises declining across recent sessions. Consider a deload week.
+          </div>
+        </div>
+        <button onClick={onDismiss} className="tap" aria-label="Dismiss" style={{
+          width: 28, height: 28, minHeight: 28, flexShrink: 0,
+          fontSize: 18, color: 'var(--muted)', lineHeight: 1,
+        }}>×</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Date-based export helpers ─────────────────────────────────
+const EMAIL_TO = 'javahirahmedov@gmail.com';
+
+// Local-calendar 'YYYY-MM-DD' key for a Date or ISO string.
+function localDateKey(d) {
+  const dt = (d instanceof Date) ? d : new Date(d);
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const day = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// "Jun 9, 2026" from a 'YYYY-MM-DD' key (parsed as a local date).
+function prettyDateFromKey(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+  });
+}
+
+// All sessions logged on a given local date, grouped by routine day.
+// → [{ day, items: [{ ex, session }] }]
+function sessionsForDate(store, dateKey) {
+  const groups = [];
+  for (const day of store.days) {
+    const items = [];
+    for (const ex of day.exercises) {
+      const sess = (store.sessions[ex.id] || [])
+        .filter(s => s && s.date && localDateKey(s.date) === dateKey);
+      for (const s of sess) items.push({ ex, session: s });
+    }
+    if (items.length) groups.push({ day, items });
+  }
+  return groups;
+}
+
+// Build the mailto payload for one date.
+//   Subject: "Training Log — <date>"
+//   Body:    every exercise logged that day, each set as reps×weight, + notes.
+function buildDateEmail(store, dateKey) {
+  const pretty = prettyDateFromKey(dateKey);
+  const subject = `Training Log — ${pretty}`;
+  const groups = sessionsForDate(store, dateKey);
+  if (!groups.length) {
+    return { to: EMAIL_TO, subject, body: `No sessions logged for ${pretty}.`, hasData: false, groups };
+  }
+  const lines = [`Training Log — ${pretty}`, ''];
+  for (const g of groups) {
+    lines.push(`Day ${g.day.id} · ${g.day.name}`);
+    for (const { ex, session } of g.items) {
+      lines.push(ex.name);
+      const setStr = session.sets.map(st => (
+        ex.unit === ''
+          ? `${st.reps} ${ex.repUnit || 'reps'}`
+          : `${st.reps}×${fmt(st.weight)}${ex.unit ? ' ' + ex.unit : ''}`
+      )).join(', ');
+      lines.push(`  ${setStr}`);
+      if (session.note) lines.push(`  Note: "${session.note}"`);
+    }
+    lines.push('');
+  }
+  return { to: EMAIL_TO, subject, body: lines.join('\n').trim(), hasData: true, groups };
+}
+
+// Bottom-of-day launcher — opens the date export sheet.
+function ExportLauncherButton({ onOpen }) {
+  return (
+    <div style={{ padding: '26px 22px 8px' }}>
+      <button
+        onClick={onOpen}
+        className="tap"
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          width: '100%', height: 48, borderRadius: 6,
+          border: '1px solid var(--hair)', background: 'var(--paper)',
+          color: 'var(--ink-2)',
+          fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.12em',
+          textTransform: 'uppercase', fontWeight: 600,
+        }}
+      >
+        Send to Email
+      </button>
+    </div>
+  );
+}
+
+// ── Edit pane ─────────────────────────────────────────────────
+function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImport, onReset, onTogglePlateau }) {
+  const exercises = day.exercises;
+  const GAP = 24;
+  const [drag, setDrag] = React.useState(null); // { from, to, dy } | null
+  const dragRef = React.useRef(null);
+  const startY = React.useRef(0);
+  const metrics = React.useRef(null);          // { mids:[], heights:[] }
+  const cardRefs = React.useRef([]);
+  cardRefs.current.length = exercises.length;
+
+  // Pointer/touch drag (HTML5 DnD is unreliable on iOS). The handle starts a
+  // drag; the dragged card follows the finger via transform while the others
+  // shift to reveal the slot; the drop index is found by comparing midpoints.
+  const beginDrag = (index, e) => {
+    if (dragRef.current) return; // ignore the second of pointerdown+touchstart
+    const y = (e.clientY != null) ? e.clientY
+      : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+    const rects = cardRefs.current.map(n => n ? n.getBoundingClientRect() : { top: 0, height: 0 });
+    metrics.current = {
+      mids: rects.map(r => r.top + r.height / 2),
+      heights: rects.map(r => r.height),
+    };
+    startY.current = y;
+    dragRef.current = { from: index, to: index, dy: 0 };
+    setDrag(dragRef.current);
+    if (e.pointerId != null && e.currentTarget.setPointerCapture) {
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+    }
+  };
+
+  const dragging = drag !== null;
+
+  React.useEffect(() => {
+    if (!dragging) return;
+    const getY = (e) => {
+      if (e.clientY != null) return e.clientY;
+      if (e.touches && e.touches[0]) return e.touches[0].clientY;
+      if (e.changedTouches && e.changedTouches[0]) return e.changedTouches[0].clientY;
+      return 0;
+    };
+    const onMoveEvt = (e) => {
+      if (!dragRef.current || !metrics.current) return;
+      if (e.cancelable) e.preventDefault(); // block page scroll mid-drag (iOS)
+      const dy = getY(e) - startY.current;
+      const mids = metrics.current.mids;
+      const from = dragRef.current.from;
+      const draggedMid = mids[from] + dy;
+      let to = from;
+      if (dy < 0) {
+        for (let i = from - 1; i >= 0; i--) { if (draggedMid < mids[i]) to = i; else break; }
+      } else {
+        for (let i = from + 1; i < mids.length; i++) { if (draggedMid > mids[i]) to = i; else break; }
+      }
+      dragRef.current = { from, to, dy };
+      setDrag({ from, to, dy });
+    };
+    const onUpEvt = () => {
+      const d = dragRef.current;
+      dragRef.current = null;
+      setDrag(null);
+      if (d && d.from !== d.to) onMove(dayIndex, d.from, d.to);
+    };
+    window.addEventListener('pointermove', onMoveEvt, { passive: false });
+    window.addEventListener('pointerup', onUpEvt);
+    window.addEventListener('pointercancel', onUpEvt);
+    window.addEventListener('touchmove', onMoveEvt, { passive: false });
+    window.addEventListener('touchend', onUpEvt);
+    window.addEventListener('touchcancel', onUpEvt);
+    return () => {
+      window.removeEventListener('pointermove', onMoveEvt);
+      window.removeEventListener('pointerup', onUpEvt);
+      window.removeEventListener('pointercancel', onUpEvt);
+      window.removeEventListener('touchmove', onMoveEvt);
+      window.removeEventListener('touchend', onUpEvt);
+      window.removeEventListener('touchcancel', onUpEvt);
+    };
+  }, [dragging, dayIndex, onMove]);
+
+  return (
+    <div style={{ padding: '22px 22px 40px' }}>
+      <div style={{
+        display: 'flex', alignItems: 'baseline', gap: 10, paddingBottom: 14,
+        borderBottom: '1px solid var(--hair)',
+      }}>
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+          color: 'var(--accent)', textTransform: 'uppercase',
+        }}>Edit Mode</span>
+        <span style={{ flex: 1 }} />
+        <button onClick={onShowImport} className="tap" style={{
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+          color: 'var(--ink-2)', textTransform: 'uppercase', padding: '8px 0',
+        }}>Import JSON</button>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, marginTop: 20 }}>
+        {exercises.map((ex, i) => {
+          const isDragged = drag != null && drag.from === i;
+          let translateY = 0;
+          let transition = 'transform 180ms cubic-bezier(.2,.7,.3,1)';
+          if (drag != null) {
+            if (isDragged) {
+              translateY = drag.dy;
+              transition = 'none';
+            } else {
+              const lift = ((metrics.current && metrics.current.heights[drag.from]) || 0) + GAP;
+              if (drag.from < drag.to && i > drag.from && i <= drag.to) translateY = -lift;
+              else if (drag.from > drag.to && i < drag.from && i >= drag.to) translateY = lift;
+            }
+          }
+          return (
+            <div
+              key={ex.id}
+              ref={el => { cardRefs.current[i] = el; }}
+              style={{
+                position: 'relative',
+                transform: `translateY(${translateY}px)`,
+                transition,
+                zIndex: isDragged ? 20 : 1,
+                boxShadow: isDragged ? '0 14px 30px rgba(15,15,16,0.18)' : 'none',
+                borderRadius: isDragged ? 10 : 0,
+                background: isDragged ? 'var(--paper)' : 'transparent',
+                touchAction: dragging ? 'none' : 'auto',
+              }}
+            >
+              <EditRow
+                ex={ex}
+                index={i}
+                onHandleDown={beginDrag}
+                dragging={isDragged}
+                onUpdate={onUpdate}
+                onRemove={onRemove}
+                onTogglePlateau={onTogglePlateau}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      <button onClick={onAdd} className="tap" style={{
+        width: '100%', height: 48, marginTop: 24,
+        border: '1px dashed var(--rule-thick)', borderRadius: 6,
+        color: 'var(--ink-2)', fontSize: 13, fontWeight: 500,
+      }}>
+        + Add Exercise to Day {day.id}
+      </button>
+
+      <button onClick={onReset} className="tap" style={{
+        marginTop: 24, fontSize: 11, color: 'var(--muted)',
+        fontFamily: 'var(--font-mono)', letterSpacing: '0.10em',
+        textTransform: 'uppercase', padding: '8px 0',
+      }}>
+        Reset all data
+      </button>
+    </div>
+  );
+}
+
+function EditRow({ ex, index, onHandleDown, dragging, onUpdate, onRemove, onTogglePlateau }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
+      <button
+        type="button"
+        aria-label="Drag to reorder"
+        onPointerDown={e => onHandleDown(index, e)}
+        onTouchStart={e => onHandleDown(index, e)}
+        className="tap"
+        style={{
+          flexShrink: 0, width: 34, alignSelf: 'stretch',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'grab', touchAction: 'none',
+          background: 'transparent', border: 'none',
+          color: dragging ? 'var(--accent)' : 'var(--muted-2)',
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <line x1="3" y1="5" x2="13" y2="5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <line x1="3" y1="8" x2="13" y2="8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <line x1="3" y1="11" x2="13" y2="11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      </button>
+      <div style={{ flex: 1, minWidth: 0, borderLeft: '2px solid var(--hair)', paddingLeft: 14 }}>
+      <input
+        value={ex.name}
+        onChange={e => onUpdate(ex.id, { name: e.target.value })}
+        style={{
+          width: '100%', border: 'none', background: 'transparent',
+          fontFamily: 'var(--font-sans)', fontWeight: 600,
+          fontSize: 16, color: 'var(--ink)', padding: 0, outline: 'none',
+          letterSpacing: '-0.015em',
+        }}
+      />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+        <NumField label="Sets" value={ex.sets} min={1} max={10} onChange={v => onUpdate(ex.id, { sets: v })} />
+        <NumField label="Rep cap" value={ex.repCap} min={1} max={100} onChange={v => onUpdate(ex.id, { repCap: v })} />
+        <NumField label="Rep min" value={ex.repMin} min={1} max={ex.repMax} onChange={v => onUpdate(ex.id, { repMin: v })} />
+        <NumField label="Rep max" value={ex.repMax} min={ex.repMin} max={ex.repCap} onChange={v => onUpdate(ex.id, { repMax: v })} />
+        <NumField label={`Wt min (${ex.unit || '—'})`} value={ex.weightMin} step={ex.weightStep} min={0} max={ex.weightMax} onChange={v => onUpdate(ex.id, { weightMin: v })} />
+        <NumField label={`Wt max (${ex.unit || '—'})`} value={ex.weightMax} step={ex.weightStep} min={ex.weightMin} max={9999} onChange={v => onUpdate(ex.id, { weightMax: v })} />
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button onClick={() => onTogglePlateau(ex.id)} className="tap" style={{
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+          color: ex.plateau ? 'var(--st-plateau)' : 'var(--muted)',
+          textTransform: 'uppercase', padding: '6px 0',
+        }}>
+          {ex.plateau ? '✓ Plateau flagged' : 'Flag plateau'}
+        </button>
+        <span style={{ flex: 1 }} />
+        <button onClick={() => confirm(`Remove "${ex.name}"? History will be preserved.`) && onRemove(ex.id)} className="tap" style={{
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+          color: 'var(--muted)', textTransform: 'uppercase', padding: '6px 0',
+        }}>
+          Remove
+        </button>
+      </div>
+      </div>
+    </div>
+  );
+}
+
+function NumField({ label, value, onChange, step = 1, min, max }) {
+  // Local text state so the field is freely editable: you can clear it,
+  // retype, and enter any digits. Bounds are applied only on blur, never
+  // mid-keystroke (mid-keystroke clamping is what made fields feel "stuck").
+  const [str, setStr] = React.useState(value == null ? '' : String(value));
+  const [focused, setFocused] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!focused) setStr(value == null ? '' : String(value));
+  }, [value, focused]);
+
+  const commit = (raw) => {
+    if (raw === '' || raw === '-' || raw === '.') {
+      setStr(value == null ? '' : String(value));
+      return;
+    }
+    let v = parseFloat(raw);
+    if (!Number.isFinite(v)) {
+      setStr(value == null ? '' : String(value));
+      return;
+    }
+    if (min != null) v = Math.max(min, v);
+    if (max != null) v = Math.min(max, v);
+    onChange(v);
+    setStr(String(v));
+  };
+
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span style={{
+        fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+        textTransform: 'uppercase', color: 'var(--muted)',
+      }}>{label}</span>
+      <input
+        type="number"
+        inputMode="decimal"
+        step={step}
+        value={str}
+        onFocus={() => setFocused(true)}
+        onChange={e => {
+          setStr(e.target.value);
+          const v = parseFloat(e.target.value);
+          if (Number.isFinite(v)) onChange(v); // live update, unclamped — clamp on blur
+        }}
+        onBlur={e => { setFocused(false); commit(e.target.value); }}
+        className="num"
+        style={{
+          height: 40, border: '1px solid var(--hair)', borderRadius: 4,
+          padding: '0 10px', background: 'var(--paper)', fontSize: 16,
+          outline: 'none',
+        }}
+      />
+    </label>
+  );
+}
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ── Import sheet ──────────────────────────────────────────────
+function ImportSheet({ currentJson, onImport, onClose }) {
+  const [text, setText] = useState(currentJson);
+  const [error, setError] = useState(null);
+
+  const tryImport = () => {
+    const res = onImport(text);
+    if (!res.ok) setError(res.error);
+  };
+
+  return (
+    <Sheet onClose={onClose} title="JSON Import">
+      <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, margin: '0 0 16px' }}>
+        Paste a routine JSON below. Existing exercises are matched by name —
+        their session history is preserved. New exercises start fresh.
+      </p>
+      <textarea
+        value={text}
+        onChange={e => { setText(e.target.value); setError(null); }}
+        spellCheck={false}
+        style={{
+          width: '100%', height: 320, padding: 12,
+          border: '1px solid var(--hair)', borderRadius: 6,
+          fontFamily: 'var(--font-mono)', fontSize: 11.5,
+          background: 'var(--paper)', color: 'var(--ink-2)', outline: 'none',
+          lineHeight: 1.55, whiteSpace: 'pre',
+        }}
+      />
+      {error && (
+        <div style={{ marginTop: 8, color: 'var(--st-plateau)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+          {error}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+        <button onClick={onClose} className="tap" style={{
+          flex: 1, height: 48, borderRadius: 6,
+          border: '1px solid var(--hair)', color: 'var(--ink-2)',
+          fontSize: 14,
+        }}>Cancel</button>
+        <button onClick={tryImport} className="tap" style={{
+          flex: 2, height: 48, borderRadius: 6,
+          background: 'var(--ink)', color: 'var(--paper)',
+          fontSize: 14, fontWeight: 500,
+        }}>Import & Load</button>
+      </div>
+    </Sheet>
+  );
+}
+
+// ── Export sheet ──────────────────────────────────────────────
+// Sessions are preserved indefinitely in localStorage. This sheet lets the
+// user pick any week that has logged sessions and export just that week.
+// If only one week of data exists, the picker is skipped automatically.
+function ExportSheet({ store, onClose }) {
+  const todayKey = localDateKey(new Date());
+  // "Today" is preselected on every open; the picked date is remembered for
+  // the rest of the browser session.
+  const [mode, setMode] = useState('today'); // 'today' | 'pick'
+  const [picked, setPicked] = useState(() => sessionStorage.getItem('pol_export_date') || todayKey);
+  const dateKey = mode === 'today' ? todayKey : picked;
+
+  useEffect(() => {
+    if (mode === 'pick') sessionStorage.setItem('pol_export_date', picked);
+  }, [mode, picked]);
+
+  const { to, subject, body, hasData, groups } = useMemo(
+    () => buildDateEmail(store, dateKey),
+    [store, dateKey]
+  );
+  const mailHref = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const totalLogged = hasData ? groups.reduce((n, g) => n + g.items.length, 0) : 0;
+
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    if (!hasData) return;
+    try {
+      await navigator.clipboard.writeText(body);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
+
+  const segStyle = (active) => ({
+    flex: 1, height: 42, borderRadius: 6,
+    fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.08em',
+    textTransform: 'uppercase', fontWeight: 600,
+    background: active ? 'var(--ink)' : 'transparent',
+    color: active ? 'var(--paper)' : 'var(--ink-2)',
+    border: active ? '1px solid var(--ink)' : '1px solid var(--hair)',
+    transition: 'background 120ms ease, color 120ms ease, border-color 120ms ease',
+  });
+
+  return (
+    <Sheet onClose={onClose} title="Export" titleStyle={{ fontSize: 24, overflow: 'visible', textOverflow: 'clip', flexShrink: 0 }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, margin: '0 0 16px' }}>
+        Email or copy every session logged on a single date.
+      </p>
+
+      {/* Today / Pick a date */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => setMode('today')} className="tap" style={segStyle(mode === 'today')}>Today</button>
+        <button onClick={() => setMode('pick')} className="tap" style={segStyle(mode === 'pick')}>Pick a date</button>
+      </div>
+
+      {mode === 'pick' && (
+        <div className="reveal" style={{ marginTop: 12 }}>
+          <input
+            type="date"
+            value={picked}
+            max={todayKey}
+            onChange={e => { if (e.target.value) setPicked(e.target.value); }}
+            className="num"
+            style={{
+              width: '100%', height: 48, padding: '0 14px',
+              border: '1px solid var(--hair)', borderRadius: 6,
+              background: 'var(--paper)', color: 'var(--ink)', outline: 'none',
+            }}
+          />
+        </div>
+      )}
+
+      {/* Selected-date heading */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '20px 0 14px' }}>
+        <span style={{
+          fontFamily: 'var(--font-sans)', fontSize: 17, fontWeight: 700,
+          color: 'var(--ink)', letterSpacing: '-0.01em',
+          whiteSpace: 'nowrap', flexShrink: 0,
+        }}>{prettyDateFromKey(dateKey)}</span>
+        <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
+        {hasData && (
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
+            letterSpacing: '0.08em', textTransform: 'uppercase',
+          }}>{totalLogged} logged</span>
+        )}
+      </div>
+
+      {/* Preview / empty state */}
+      {hasData ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {groups.map(g => (
+            <div key={g.day.id}>
+              <div style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+                textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700,
+                marginBottom: 10,
+              }}>Day {g.day.id} · {g.day.name}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {g.items.map(({ ex, session }, i) => (
+                  <div key={i}>
+                    <div style={{
+                      fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 600,
+                      color: 'var(--ink)', letterSpacing: '-0.01em',
+                    }}>{ex.name}</div>
+                    <div className="num" style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.5 }}>
+                      {session.sets.map((st, j) => (
+                        <span key={j}>
+                          {st.reps}<span style={{ color: 'var(--muted-2)' }}>×</span>{fmt(st.weight)}
+                          {j < session.sets.length - 1 && <span style={{ color: 'var(--muted-2)', margin: '0 6px' }}>·</span>}
+                        </span>
+                      ))}
+                      {ex.unit && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 6 }}>{ex.unit}</span>}
+                    </div>
+                    {session.note && (
+                      <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+                        “{session.note}”
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{
+          padding: '22px 16px', borderRadius: 8,
+          border: '1px dashed var(--rule-thick)',
+          textAlign: 'center', fontSize: 13.5, color: 'var(--muted)', fontWeight: 500,
+        }}>
+          No sessions logged for this date.
+        </div>
+      )}
+
+      {/* Actions */}
+      <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+        <button
+          onClick={copy}
+          disabled={!hasData}
+          className="tap"
+          style={{
+            flex: 1, height: 48, borderRadius: 6,
+            border: '1px solid var(--hair)',
+            color: hasData ? 'var(--ink-2)' : 'var(--muted-2)',
+            background: copied ? 'var(--st-stable-bg)' : 'transparent',
+            fontSize: 14, fontWeight: 500,
+            cursor: hasData ? 'pointer' : 'not-allowed',
+          }}
+        >{copied ? '✓ Copied' : 'Copy'}</button>
+        <a
+          href={hasData ? mailHref : undefined}
+          className="tap"
+          aria-disabled={!hasData}
+          onClick={e => { if (!hasData) e.preventDefault(); }}
+          style={{
+            flex: 2, height: 48, borderRadius: 6,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: hasData ? 'var(--accent)' : 'var(--paper-2)',
+            color: hasData ? '#FFFFFF' : 'var(--muted-2)',
+            textDecoration: 'none',
+            fontSize: 14, fontWeight: 600, letterSpacing: '0.02em',
+            cursor: hasData ? 'pointer' : 'not-allowed',
+          }}
+        >Send to Email</a>
+      </div>
+    </Sheet>
+  );
+}
+
+// ── Sheet (modal) ─────────────────────────────────────────────
+function Sheet({ title, children, onClose, titleStyle }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'absolute', inset: 0, zIndex: 100,
+        background: 'rgba(20, 18, 14, 0.32)',
+        display: 'flex', alignItems: 'flex-end',
+        backdropFilter: 'blur(2px)',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: '100%', maxHeight: '88%',
+          background: 'var(--paper)',
+          borderRadius: '16px 16px 0 0',
+          padding: '14px 22px 26px',
+          overflow: 'auto',
+          boxShadow: '0 -10px 30px rgba(0,0,0,0.12)',
+        }}
+      >
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--hair)', margin: '0 auto 18px' }} />
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 18 }}>
+          <h2 style={{
+            margin: 0, fontFamily: 'var(--font-sans)', fontWeight: 700,
+            fontSize: 26, color: 'var(--ink)', letterSpacing: '-0.02em',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            ...(titleStyle || {}),
+          }}>{title}</h2>
+          <button onClick={onClose} className="tap" style={{
+            fontSize: 22, color: 'var(--muted)', padding: '0 8px', flexShrink: 0,
+          }}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── Mount ────────────────────────────────────────────────────
+function Root() {
+  return <App />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Root />);
+</script>
+
 
 </body>
 </html>
