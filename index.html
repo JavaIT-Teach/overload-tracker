@@ -2203,14 +2203,15 @@ function LiveSettingsPanel({ ex, onSave, onCancel }) {
           value={draft.name}
           onChange={e => set({ name: e.target.value })}
           style={{
+            width: '100%', minWidth: 0, boxSizing: 'border-box',
             height: 40, border: '1px solid var(--hair)', borderRadius: 4,
-            padding: '0 10px', background: 'var(--paper)', fontSize: 15,
+            padding: '0 10px', background: 'var(--paper)', fontSize: 16,
             outline: 'none', fontWeight: 600, color: 'var(--ink)',
           }}
         />
       </label>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
         <NumField label="Sets" value={draft.sets} min={1} max={10} onChange={v => set({ sets: v })} />
         <NumField label="Rep cap" value={draft.repCap} min={1} max={100} onChange={v => set({ repCap: v })} />
         <NumField label="Rep min" value={draft.repMin} min={1} max={draft.repMax} onChange={v => set({ repMin: v })} />
@@ -3541,7 +3542,7 @@ function EditRow({ ex, index, onHandleDown, dragging, onUpdate, onRemove, onTogg
           letterSpacing: '-0.015em',
         }}
       />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10, marginTop: 12 }}>
         <NumField label="Sets" value={ex.sets} min={1} max={10} onChange={v => onUpdate(ex.id, { sets: v })} />
         <NumField label="Rep cap" value={ex.repCap} min={1} max={100} onChange={v => onUpdate(ex.id, { repCap: v })} />
         <NumField label="Rep min" value={ex.repMin} min={1} max={ex.repMax} onChange={v => onUpdate(ex.id, { repMin: v })} />
@@ -3598,10 +3599,10 @@ function NumField({ label, value, onChange, step = 1, min, max }) {
   };
 
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
       <span style={{
         fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
-        textTransform: 'uppercase', color: 'var(--muted)',
+        textTransform: 'uppercase', color: 'var(--muted)', overflowWrap: 'break-word',
       }}>{label}</span>
       <input
         type="number"
@@ -3617,6 +3618,7 @@ function NumField({ label, value, onChange, step = 1, min, max }) {
         onBlur={e => { setFocused(false); commit(e.target.value); }}
         className="num"
         style={{
+          width: '100%', minWidth: 0, boxSizing: 'border-box',
           height: 40, border: '1px solid var(--hair)', borderRadius: 4,
           padding: '0 10px', background: 'var(--paper)', fontSize: 16,
           outline: 'none',
