@@ -653,28 +653,6 @@ function buildPrompts(a, ex) {
   return prompts;
 }
 
-// Total logged sessions across the whole store (used to re-arm the deload banner).
-function totalSessionCount(store) {
-  return Object.values(store.sessions || {}).reduce((n, arr) => n + (arr ? arr.length : 0), 0);
-}
-
-// Deload scan across all four days: ≥3 distinct exercises whose last two
-// sessions show the same top weight but fewer total reps.
-function detectDeload(store) {
-  const declining = [];
-  for (const day of store.days) {
-    for (const ex of day.exercises) {
-      const h = store.sessions[ex.id] || [];
-      if (h.length < 2) continue;
-      const a = h[h.length - 2], b = h[h.length - 1];
-      if (maxWeight(b.sets) === maxWeight(a.sets) && totalReps(b.sets) < totalReps(a.sets)) {
-        declining.push(ex.name);
-      }
-    }
-  }
-  return { signal: declining.length >= 3, count: declining.length, exercises: declining };
-}
-
 Object.assign(window, {
   deriveStatus, hitCeiling, repButtonRange, weightButtonRange,
   roundToStep, fmt, targetString, isoWeekKey, isoWeekStart,
@@ -683,7 +661,7 @@ Object.assign(window, {
   maxWeight, totalReps, identicalSessions, incrementFor, isBodyweight,
   deloadWeight, comparePerformance, analyze, summarize, buildSummary,
   plateauNextStep,
-  buildPrompts, totalSessionCount, detectDeload,
+  buildPrompts,
   STATUS_LABELS,
   // coach v4 — deterministic next-session verdict
   VERDICT, nextSessionVerdict, sessionRaisesRange, governingVerdict,
@@ -2883,11 +2861,6 @@ function App() {
     });
   };
 
-  // DELOAD SIGNAL — dismiss the recovery banner until the condition re-arms
-  // (which requires at least one new session to be logged afterwards).
-  const dismissDeload = () => {
-    setStore(s => ({ ...s, deloadDismissedAt: totalSessionCount(s) }));
-  };
   const saveExerciseNote = (exId, text) => {
     setStore(s => ({
       ...s,
@@ -3181,7 +3154,6 @@ function App() {
         transition: 'transform 280ms cubic-bezier(.4,0,.2,1)',
         willChange: 'transform',
       }}>
-        {!editMode && <DeloadBanner store={store} onDismiss={dismissDeload} />}
         {!editMode && doneIds.size > 0 && (
           <button
             onClick={clearDoneIds}
@@ -3301,44 +3273,6 @@ function findEx(store, exId) {
     if (e) return e;
   }
   return null;
-}
-
-// ── Deload signal banner ──────────────────────────────────────
-// Surfaces when ≥3 distinct exercises across all four days show a downward
-// rep trend (same weight, fewer reps) over their last two sessions.
-// Dismissible; re-arms only after a new session is logged.
-function DeloadBanner({ store, onDismiss }) {
-  const deload = detectDeload(store);
-  const total = totalSessionCount(store);
-  if (!deload.signal) return null;
-  if (total <= (store.deloadDismissedAt || 0)) return null;
-
-  return (
-    <div style={{ padding: '16px 22px 0' }}>
-      <div className="reveal" style={{
-        display: 'flex', alignItems: 'flex-start', gap: 12,
-        padding: '14px 14px 14px 16px',
-        background: 'var(--st-plateau-bg)',
-        borderLeft: '3px solid var(--st-plateau)',
-        borderRadius: 6,
-      }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em',
-            textTransform: 'uppercase', color: 'var(--st-plateau)', fontWeight: 700,
-            marginBottom: 5,
-          }}>Recovery signal</div>
-          <div style={{ fontSize: 14, color: 'var(--ink-2)', lineHeight: 1.45, fontWeight: 500 }}>
-            {deload.count} exercises declining across recent sessions. Consider a deload week.
-          </div>
-        </div>
-        <button onClick={onDismiss} className="tap" aria-label="Dismiss" style={{
-          width: 28, height: 28, minHeight: 28, flexShrink: 0,
-          fontSize: 18, color: 'var(--muted)', lineHeight: 1,
-        }}>×</button>
-      </div>
-    </div>
-  );
 }
 
 // ── Date-based export helpers ─────────────────────────────────
