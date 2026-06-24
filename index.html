@@ -20,18 +20,22 @@
 
 <style>
   :root {
-    --paper:      #FAFAFA;
-    --paper-2:    #F2F2F0;
+    --paper:      #FFFFFF;
+    --paper-2:    #F0EFE9;
     --ink:        #0E0E10;
     --ink-2:      #2A2A2E;
-    --muted:      #7A7A80;
-    --muted-2:    #B4B4B8;
+    --muted:      #222222;
+    --muted-2:    #222222;
     --hair:       rgba(14, 14, 16, 0.10);
     --hair-2:     rgba(14, 14, 16, 0.06);
-    --accent:     #2563EB;
-    --accent-2:   #1D4ED8;
-    --accent-tint: rgba(37, 99, 235, 0.08);
+    --accent:     #2E7172;
+    --accent-2:   #215859;
+    --accent-tint: rgba(46, 113, 114, 0.08);
     --rule-thick: rgba(14, 14, 16, 0.18);
+
+    --card-bg:     #F0EFE9;
+    --card-border: rgba(0, 0, 0, 0.07);
+    --card-radius: 14px;
 
     --st-dev:        #6B7280;
     --st-dev-bg:     #EEF0F3;
@@ -1201,9 +1205,9 @@ function ChoiceRow({ label, options, value, onPick, formatter, unit, optimum, al
               style={{
                 minWidth: 52, padding: '0 12px', height: 44,
                 borderRadius: 6,
-                background: sel ? 'var(--ink)' : 'transparent',
-                color: sel ? 'var(--paper)' : (inRange ? 'var(--ink)' : 'var(--muted)'),
-                border: sel ? '1px solid var(--ink)' : `1px ${isPreset ? 'dashed' : 'solid'} ${inRange ? 'var(--hair)' : 'var(--hair-2)'}`,
+                background: sel ? 'var(--accent)' : 'var(--card-bg)',
+                color: sel ? '#FFFFFF' : (inRange ? 'var(--ink)' : 'var(--muted)'),
+                border: sel ? '1px solid var(--accent)' : `0.5px ${isPreset ? 'dashed' : 'solid'} rgba(0,0,0,0.08)`,
                 fontSize: 15, fontWeight: 500,
                 transition: 'background 120ms ease, color 120ms ease, border-color 120ms ease',
               }}
@@ -1338,8 +1342,8 @@ function LoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustomWeigh
       <HairlineHeading kicker="Log session" />
       <div style={{
         display: 'flex', flexDirection: 'column', gap: 22,
-        marginTop: 16, padding: '16px 14px',
-        background: 'var(--accent-tint)', borderRadius: 8,
+        marginTop: 16, padding: '16px 18px',
+        background: 'rgba(46, 113, 114, 0.06)', borderRadius: 12,
       }}>
         {sets.map((s, i) => {
           const isActive = i === activeSet;
@@ -1666,9 +1670,9 @@ function SummaryCard({ summary }) {
 
   return (
     <div style={{
-      marginTop: 14, borderRadius: 8,
-      border: '1px solid var(--hair)', overflow: 'hidden',
-      background: 'var(--paper-2)',
+      marginTop: 14, borderRadius: 'var(--card-radius)',
+      border: '0.5px solid var(--card-border)', overflow: 'hidden',
+      background: 'var(--card-bg)',
     }}>
       <button
         onClick={() => setOpen(o => !o)}
@@ -1811,8 +1815,9 @@ function ExerciseNote({ note, onSave, onDelete }) {
   if (hasNote && !editing) {
     return (
       <div style={{
-        marginTop: 14, padding: '12px 14px',
-        background: 'var(--paper-2)', borderRadius: 6,
+        marginTop: 14, padding: '16px 18px',
+        background: 'var(--card-bg)', border: '0.5px solid var(--card-border)',
+        borderRadius: 'var(--card-radius)',
         display: 'flex', gap: 12, alignItems: 'flex-start',
       }}>
         <div style={{
@@ -2037,13 +2042,15 @@ function ExerciseCard({ ex, history, note, done, onOpenLive, onSaveNote, onDelet
       ref={cardRef}
       onClick={openLive}
       style={{
-        padding: '22px 22px 20px',
-        borderBottom: '1px solid var(--hair-2)',
+        padding: '16px 18px',
+        margin: '0 0 12px',
+        background: 'var(--card-bg)',
+        border: '0.5px solid var(--card-border)',
+        borderRadius: 'var(--card-radius)',
         position: 'relative',
         cursor: 'pointer',
-        background: done ? 'var(--paper-2)' : 'transparent',
         opacity: done ? 0.72 : 1,
-        transition: 'background 160ms ease, opacity 160ms ease',
+        transition: 'opacity 160ms ease',
       }}
     >
       {/* Title row */}
@@ -2213,9 +2220,9 @@ function LiveSettingsPanel({ ex, onSave, onCancel }) {
 
   return (
     <div className="reveal" style={{
-      margin: '0 0 18px', padding: '16px 16px 14px',
-      background: 'var(--paper-2)', borderRadius: 8,
-      border: '1px solid var(--hair)',
+      margin: '0 0 18px', padding: '16px 18px',
+      background: 'var(--card-bg)', borderRadius: 'var(--card-radius)',
+      border: '0.5px solid var(--card-border)',
     }}>
       <div style={{
         fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
@@ -2247,7 +2254,7 @@ function LiveSettingsPanel({ ex, onSave, onCancel }) {
 
       <div style={{
         display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10,
-        marginTop: 10, padding: 10, background: 'var(--paper)', borderRadius: 6,
+        marginTop: 10, padding: 10, background: 'rgba(0, 0, 0, 0.03)', borderRadius: 6,
       }}>
         <NumField label="Rep min" value={draft.repMin} min={1} max={draft.repMax} onChange={v => set({ repMin: v })} />
         <NumField label="Rep max" value={draft.repMax} min={draft.repMin} max={draft.repCap} onChange={v => set({ repMax: v })} />
@@ -2255,7 +2262,7 @@ function LiveSettingsPanel({ ex, onSave, onCancel }) {
 
       <div style={{
         display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10,
-        marginTop: 10, padding: 10, background: 'var(--accent-tint)', borderRadius: 6,
+        marginTop: 10, padding: 10, background: 'rgba(46, 113, 114, 0.07)', borderRadius: 6,
       }}>
         <NumField label={`Wt min (${ex.unit || '—'})`} value={draft.weightMin} step={ex.weightStep} min={0} max={draft.weightMax} onChange={v => set({ weightMin: v })} />
         <NumField label={`Wt max (${ex.unit || '—'})`} value={draft.weightMax} step={ex.weightStep} min={draft.weightMin} max={9999} onChange={v => set({ weightMax: v })} />
@@ -3599,8 +3606,10 @@ function EditRow({ ex, index, onHandleDown, dragging, onUpdate, onRemove, onTogg
         </svg>
       </button>
       <div style={{
-        flex: 1, minWidth: 0, borderLeft: '2px solid var(--hair)',
-        padding: '12px 14px', background: 'var(--paper-2)', borderRadius: 8,
+        flex: 1, minWidth: 0,
+        padding: '16px 18px',
+        background: 'var(--card-bg)', border: '0.5px solid var(--card-border)',
+        borderRadius: 'var(--card-radius)',
       }}>
       <input
         value={ex.name}
@@ -3618,14 +3627,14 @@ function EditRow({ ex, index, onHandleDown, dragging, onUpdate, onRemove, onTogg
       </div>
       <div style={{
         display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10,
-        marginTop: 10, padding: 10, background: 'var(--paper)', borderRadius: 6,
+        marginTop: 10, padding: 10, background: 'rgba(0, 0, 0, 0.03)', borderRadius: 6,
       }}>
         <NumField label="Rep min" value={ex.repMin} min={1} max={ex.repMax} onChange={v => onUpdate(ex.id, { repMin: v })} />
         <NumField label="Rep max" value={ex.repMax} min={ex.repMin} max={ex.repCap} onChange={v => onUpdate(ex.id, { repMax: v })} />
       </div>
       <div style={{
         display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10,
-        marginTop: 10, padding: 10, background: 'var(--accent-tint)', borderRadius: 6,
+        marginTop: 10, padding: 10, background: 'rgba(46, 113, 114, 0.07)', borderRadius: 6,
       }}>
         <NumField label={`Wt min (${ex.unit || '—'})`} value={ex.weightMin} step={ex.weightStep} min={0} max={ex.weightMax} onChange={v => onUpdate(ex.id, { weightMin: v })} />
         <NumField label={`Wt max (${ex.unit || '—'})`} value={ex.weightMax} step={ex.weightStep} min={ex.weightMin} max={9999} onChange={v => onUpdate(ex.id, { weightMax: v })} />
