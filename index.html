@@ -1902,10 +1902,11 @@ function ExerciseNote({ note, onSave, onDelete }) {
 
 // Deterministic next-session verdict commit — shared by the card's quick-log
 // path (none anymore) and LiveExerciseView. Persists logged weights as
-// presets, stamps the verdict snapshot, and applies the range-increase
-// outcome exactly once per session. Pure side-effect orchestration — the
-// actual three-state logic lives in nextSessionVerdict() (progression.js).
-function commitSession(ex, sets, { onLog, onApplyIncrement, onAddCustomWeight }) {
+// presets and stamps the verdict snapshot. Pure side-effect orchestration —
+// the actual three-state logic lives in nextSessionVerdict() (progression.js).
+// Returns true if the session's verdict raises the weight range, so the
+// caller can confirm with the user before applying it.
+function commitSession(ex, sets, { onLog, onAddCustomWeight }) {
   if (onAddCustomWeight) {
     sets.forEach(s => {
       if (s.weight != null && s.weight > 0) onAddCustomWeight(ex.id, s.weight);
@@ -1917,7 +1918,78 @@ function commitSession(ex, sets, { onLog, onApplyIncrement, onAddCustomWeight })
     status: deriveStatus(ex),
   };
   onLog(ex.id, { sets, summary: snapshot }, deriveStatus(ex));
-  if (sessionRaisesRange(ex, sets)) onApplyIncrement(ex.id);
+  return sessionRaisesRange(ex, sets);
+}
+
+// Confirm-before-apply prompt for the v4 deterministic weight-range increase.
+// Shows the current range plus two editable inputs pre-filled with the
+// suggested new range; only applies on explicit confirm.
+function WeightRangeIncreasePrompt({ ex, suggestedMin, suggestedMax, onConfirm, onDismiss }) {
+  const unit = ex.unit ? ` ${ex.unit}` : '';
+  const [min, setMin] = useState(suggestedMin);
+  const [max, setMax] = useState(suggestedMax);
+
+  return (
+    <PromptShell kicker="Weight range increases">
+      <PromptHeadline>
+        Both ceilings were hit. <span style={{ color: 'var(--accent)' }}>Update your weight range?</span>
+      </PromptHeadline>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
+        marginTop: 8, letterSpacing: '0.04em',
+      }}>Current range → {fmt(ex.weightMin)}–{fmt(ex.weightMax)}{unit}</div>
+      <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+        <label style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+            textTransform: 'uppercase', color: 'var(--muted)',
+          }}>New min{unit}</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            step="any"
+            value={min}
+            onChange={e => setMin(e.target.value === '' ? '' : parseFloat(e.target.value))}
+            className="num"
+            style={{
+              height: 40, border: '1px solid var(--hair)', borderRadius: 4,
+              padding: '0 10px', background: 'var(--paper)', fontSize: 16,
+              outline: 'none', color: 'var(--ink)',
+            }}
+          />
+        </label>
+        <label style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+            textTransform: 'uppercase', color: 'var(--muted)',
+          }}>New max{unit}</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            step="any"
+            value={max}
+            onChange={e => setMax(e.target.value === '' ? '' : parseFloat(e.target.value))}
+            className="num"
+            style={{
+              height: 40, border: '1px solid var(--hair)', borderRadius: 4,
+              padding: '0 10px', background: 'var(--paper)', fontSize: 16,
+              outline: 'none', color: 'var(--ink)',
+            }}
+          />
+        </label>
+      </div>
+      <PromptActions
+        confirmLabel="Confirm"
+        dismissLabel="Dismiss"
+        onDismiss={onDismiss}
+        onConfirm={() => {
+          const nMin = Number.isFinite(min) ? min : suggestedMin;
+          const nMax = Number.isFinite(max) ? max : suggestedMax;
+          onConfirm(nMin, nMax);
+        }}
+      />
+    </PromptShell>
+  );
 }
 
 // ── Exercise card ─────────────────────────────────────────────
@@ -2174,6 +2246,7 @@ function LiveExerciseView({
   const [phase, setPhase] = useState('enter'); // enter | open | leaving
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [justLogged, setJustLogged] = useState(null); // sets just committed, for SummaryCard
+  const [rangeIncreasePrompt, setRangeIncreasePrompt] = useState(null); // { suggestedMin, suggestedMax } | null
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setPhase('open'));
@@ -2220,8 +2293,15 @@ function LiveExerciseView({
   }, [ex, history, justLogged]);
 
   const handleDone = (sets) => {
-    commitSession(ex, sets, { onLog, onApplyIncrement, onAddCustomWeight });
+    const raisesRange = commitSession(ex, sets, { onLog, onAddCustomWeight });
     setJustLogged(sets);
+    if (raisesRange) {
+      const step = incrementFor(ex);
+      setRangeIncreasePrompt({
+        suggestedMin: roundToStep(ex.weightMin + step, step),
+        suggestedMax: roundToStep(ex.weightMax + step, step),
+      });
+    }
   };
 
   const handleSaveSettings = (draft) => {
@@ -2282,7 +2362,21 @@ function LiveExerciseView({
         <PrevSessionChip ex={ex} history={history} />
 
         {justLogged ? (
-          <SummaryCard summary={summary} />
+          <Fragment>
+            <SummaryCard summary={summary} />
+            {rangeIncreasePrompt && (
+              <WeightRangeIncreasePrompt
+                ex={ex}
+                suggestedMin={rangeIncreasePrompt.suggestedMin}
+                suggestedMax={rangeIncreasePrompt.suggestedMax}
+                onConfirm={(min, max) => {
+                  onApplyIncrement(ex.id, { weightMin: min, weightMax: max });
+                  setRangeIncreasePrompt(null);
+                }}
+                onDismiss={() => setRangeIncreasePrompt(null)}
+              />
+            )}
+          </Fragment>
         ) : (
           <LoggingPanel
             ex={ex}
@@ -2647,7 +2741,7 @@ function App() {
   // spread); the rep range is unchanged (reps "reset to floor" behaviorally,
   // and stay frozen when the rep cap is reached). Bodyweight: add one rep
   // toward the cap. Clears any plateau flag.
-  const applyIncrement = (exId) => {
+  const applyIncrement = (exId, override) => {
     setStore(s => {
       let marker = null;
       const days = s.days.map(d => ({
@@ -2666,8 +2760,8 @@ function App() {
             return { ...e, archivedTargets: archive, repMin: nr, repMax: nr, plateau: false };
           }
           const step = incrementFor(e);
-          const nMin = roundToStep(e.weightMin + step, step);
-          const nMax = roundToStep(e.weightMax + step, step);
+          const nMin = (override && Number.isFinite(override.weightMin)) ? override.weightMin : roundToStep(e.weightMin + step, step);
+          const nMax = (override && Number.isFinite(override.weightMax)) ? override.weightMax : roundToStep(e.weightMax + step, step);
           marker = { kind: 'weight', toWeight: nMax };
           return { ...e, archivedTargets: archive, weightMin: nMin, weightMax: nMax, plateau: false };
         }),
