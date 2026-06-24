@@ -594,10 +594,13 @@ function nextSessionVerdict(ex, set) {
   return VERDICT.hold;
 }
 
-// True iff ANY logged set hit both ceilings. The weight range is shifted exactly
-// once per session regardless of how many sets qualified.
+// True iff EVERY logged set hit both ceilings (max reps AND max weight) — a
+// single set falling short of the rep range max must not trigger a range
+// increase, even if other sets in the same session hit it.
 function sessionRaisesRange(ex, sets) {
-  return (sets || []).some(s => {
+  const list = sets || [];
+  if (!list.length) return false;
+  return list.every(s => {
     const v = nextSessionVerdict(ex, s);
     return v && v.kind === 'increase';
   });
