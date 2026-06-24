@@ -3198,7 +3198,9 @@ function App() {
             New session
           </button>
         )}
-        {!editMode && exercises.map(ex => {
+        {!editMode && (
+        <div style={{ padding: '16px 14px 0' }}>
+        {exercises.map(ex => {
           // Notes shape may be legacy array (sessionized) — normalize to {text, savedAt}
           const rawNote = store.notes && store.notes[ex.id];
           const note = Array.isArray(rawNote)
@@ -3217,6 +3219,8 @@ function App() {
             />
           );
         })}
+        </div>
+        )}
 
         {!editMode && (
           <ExportLauncherButton onOpen={() => setShowExport(true)} />
