@@ -710,7 +710,7 @@ Object.assign(window, {
   }
 
   // ── DAY 1 · PULL ────────────────────────────────────────────
-  add(1, 'Chest-Supported Row Machine', { sets: 3, repMin: 10, repMax: 12, wMin: 170, wMax: 170, repCap: 12 });
+  add(1, 'Low Rows',                    { sets: 3, repMin: 10, repMax: 12, wMin: 121, wMax: 121, repCap: 12 });
   add(1, 'Lat Pulldown',                { sets: 3, repMin: 10, repMax: 12, wMin: 126, wMax: 126, repCap: 12 });
   add(1, 'Cable Straight-Arm Pulldown', { sets: 3, repMin: 12, repMax: 15, wMin: 53,  wMax: 53,  repCap: 15 });
   add(1, 'Rear Delt Fly Machine',       { sets: 3, repMin: 15, repMax: 15, wMin: 80,  wMax: 80,  repCap: 15 });
@@ -794,6 +794,10 @@ Object.assign(window, {
     jun16: '2026-06-16T19:00:00.000Z', // PULL
     jun19: '2026-06-19T19:00:00.000Z', // PUSH · LEGS · UPPER
     jun23: '2026-06-23T19:00:00.000Z', // PULL
+    jun25: '2026-06-25T19:00:00.000Z', // PUSH
+    jun26: '2026-06-26T19:00:00.000Z', // LEGS
+    jun27: '2026-06-27T19:00:00.000Z', // UPPER
+    jul6:  '2026-07-06T19:00:00.000Z', // PULL
   };
 
   // s(reps, weight) → [reps, weight] — tiny helper to keep rows readable.
@@ -809,6 +813,9 @@ Object.assign(window, {
       { date: D.jun16, sets: [s(12,170), s(12,170), s(12,170)] },
       { date: D.jun23, sets: [s(12,170), s(12,170), s(12,170)] },
     ],
+    '1::Low Rows': [
+      { date: D.jul6,  sets: [s(12,121), s(12,121), s(12,121)] },
+    ],
     '1::Lat Pulldown': [
       { date: D.may18, sets: [s(10,121), s(9,121), s(10,121)] },
       { date: D.may26, sets: [s(11,121), s(10,121), s(10,121)], prog: { kind: 'weight', toWeight: 126 } },
@@ -816,6 +823,7 @@ Object.assign(window, {
       { date: D.jun9,  sets: [s(12,126), s(11,126), s(11,126)] },
       { date: D.jun16, sets: [s(12,126), s(11,126), s(11,126)] },
       { date: D.jun23, sets: [s(12,126), s(12,126), s(12,126)] },
+      { date: D.jul6,  sets: [s(12,126), s(12,126), s(12,126)] },
     ],
     '1::Cable Straight-Arm Pulldown': [
       { date: D.may18, sets: [s(10,44), s(12,33), s(12,33)] },
@@ -824,6 +832,7 @@ Object.assign(window, {
       { date: D.jun9,  sets: [s(15,57), s(14,57), s(12,57)], note: '57 too much, go 53' },
       { date: D.jun16, sets: [s(15,53), s(13,53), s(13,53)] },
       { date: D.jun23, sets: [s(15,53), s(13,53), s(12,53)] },
+      { date: D.jul6,  sets: [s(14,53), s(12,53), s(12,53)] },
     ],
     '1::Rear Delt Fly Machine': [
       { date: D.may18, sets: [s(15,80), s(14,80), s(13,80)] },
@@ -832,6 +841,7 @@ Object.assign(window, {
       { date: D.jun9,  sets: [s(15,80), s(15,80), s(15,80)] },
       { date: D.jun16, sets: [s(15,80), s(15,80), s(15,80)] },
       { date: D.jun23, sets: [s(15,80), s(13,90), s(13,90)] },
+      { date: D.jul6,  sets: [s(15,90), s(13,90), s(13,90)] },
     ],
     '1::Face Pull': [
       { date: D.may18, sets: [s(15,50), s(15,50), s(15,50)] },
@@ -840,6 +850,7 @@ Object.assign(window, {
       { date: D.jun9,  sets: [s(15,60), s(15,60), s(15,60)] },
       { date: D.jun16, sets: [s(15,44), s(15,44), s(15,44)] },
       { date: D.jun23, sets: [s(20,44), s(17,44), s(17,44)] },
+      { date: D.jul6,  sets: [s(15,44), s(15,44), s(15,44)] },
     ],
     '1::Incline Dumbbell Curl': [
       { date: D.may18, sets: [s(10,25), s(8,25), s(8,25)] },
@@ -848,6 +859,7 @@ Object.assign(window, {
       { date: D.jun9,  sets: [s(10,27.5), s(9,27.5), s(8,27.5)] },
       { date: D.jun16, sets: [s(10,27.5), s(8,27.5), s(7,27.5)] },
       { date: D.jun23, sets: [s(12,27.5), s(8,27.5), s(8,27.5)] },
+      { date: D.jul6,  sets: [s(10,30), s(9,30), s(8,30)] },
     ],
     '1::Behind-the-Back Finger Curls': [
       { date: D.may18, sets: [s(15,66), s(15,66)], prog: { kind: 'weight', toWeight: 70 } },
@@ -856,6 +868,7 @@ Object.assign(window, {
       { date: D.jun9,  sets: [s(15,77), s(15,77)] },
       { date: D.jun16, sets: [s(14,77), s(15,77)] },
       { date: D.jun23, sets: [s(15,77), s(15,77)] },
+      { date: D.jul6,  sets: [s(15,82.5), s(15,82.5)] },
     ],
     '1::Dumbbell Hammer Curl': [
       { date: D.may18, sets: [s(12,30), s(12,30)] },
@@ -863,6 +876,7 @@ Object.assign(window, {
       { date: D.jun3,  sets: [s(14,25), s(12,30)] },
       { date: D.jun16, sets: [s(12,30), s(10,30)] },
       { date: D.jun23, sets: [s(12,30), s(11,30)] },
+      { date: D.jul6,  sets: [s(12,32.5), s(10,32.5)] },
     ],
 
     // ── DAY 2 · PUSH ──────────────────────────────────────────
@@ -871,12 +885,14 @@ Object.assign(window, {
       { date: D.jun4,  sets: [s(10,50), s(9,50), s(8,50)] },
       { date: D.jun11, sets: [s(9,50), s(8,50), s(8,45)] },
       { date: D.jun19, sets: [s(10,50), s(8,50), s(8,50)] },
+      { date: D.jun25, sets: [s(10,52), s(11,52), s(10,52)] },
     ],
     '2::Seated Dumbbell Shoulder Press': [
       { date: D.may21, sets: [s(10,40), s(10,40), s(10,40)], prog: { kind: 'weight', toWeight: 45 } },
       { date: D.jun4,  sets: [s(10,45), s(9,45), s(9,45)] },
       { date: D.jun11, sets: [s(8,45), s(10,40), s(10,40)] },
       { date: D.jun19, sets: [s(8,45), s(8,45), s(8,45)] },
+      { date: D.jun25, sets: [s(12,45), s(9,45), s(9,45)] },
     ],
     '2::Flat Dumbbell Bench Press': [
       { date: D.may21, sets: [s(12,45), s(10,45), s(10,45)] },
@@ -889,28 +905,34 @@ Object.assign(window, {
       { date: D.jun4,  sets: [s(15,110), s(15,110), s(15,110)] },
       { date: D.jun11, sets: [s(15,120), s(12,120), s(12,120)] },
       { date: D.jun19, sets: [s(14,110), s(14,110), s(10,120)] },
+      { date: D.jun25, sets: [s(14,120), s(14,120), s(14,120)] },
     ],
     '2::Lower Chest Cable Fly': [
       { date: D.may21, sets: [s(15,22), s(15,22), s(15,22)], prog: { kind: 'weight', toWeight: 30 } },
       { date: D.jun4,  sets: [s(15,30), s(15,30), s(15,30)] },
       { date: D.jun11, sets: [s(15,30), s(15,30), s(15,30)] },
       { date: D.jun19, sets: [s(15,33), s(15,33), s(13,33)] },
+      { date: D.jun25, sets: [s(15,33), s(13,33), s(13,30)] },
     ],
     '2::Incline Cable Fly (low-to-high)': [
       { date: D.jun11, sets: [s(15,17), s(12,17), s(13,17)] },
       { date: D.jun19, sets: [s(12,17), s(12,17), s(12,17)] },
+      { date: D.jun25, sets: [s(17,17), s(15,20), s(14,20)] },
     ],
     '2::Lateral Raise': [
       { date: D.jun11, sets: [s(15,20), s(15,20), s(15,20), s(13,20)] },
       { date: D.jun19, sets: [s(15,20), s(15,20), s(12,20), s(12,20)] },
+      { date: D.jun25, sets: [s(15,22.5), s(15,22.5), s(13,22.5), s(15,20)] },
     ],
     '2::Overhead Triceps Extension': [
       { date: D.jun11, sets: [s(12,60), s(11,60), s(11,60)] },
       { date: D.jun19, sets: [s(12,66), s(10,60), s(10,60)] },
+      { date: D.jun25, sets: [s(12,60), s(12,60), s(12,60)] },
     ],
     '2::Cable Triceps Pushdown': [
       { date: D.jun11, sets: [s(12,77), s(11,77), s(11,77)] },
       { date: D.jun19, sets: [s(12,77), s(12,77), s(11,77)] },
+      { date: D.jun25, sets: [s(12,77), s(11,77), s(12,77)] },
     ],
 
     // ── DAY 3 · LEGS ──────────────────────────────────────────
@@ -919,6 +941,7 @@ Object.assign(window, {
       { date: D.jun5,  sets: [s(11,180), s(11,180), s(11,180), s(8,180)] },
       { date: D.jun12, sets: [s(11,175), s(11,175), s(11,175), s(11,175)] },
       { date: D.jun19, sets: [s(11,180), s(11,180), s(11,180), s(11,180)] },
+      { date: D.jun26, sets: [s(12,180), s(12,180), s(12,180), s(12,180)] },
     ],
     '3::Romanian Deadlift': [
       { date: D.may21, sets: [s(12,100), s(12,85), s(12,85)], prog: { kind: 'weight', toWeight: 140 } },
@@ -930,46 +953,54 @@ Object.assign(window, {
       { date: D.jun5,  sets: [s(14,130), s(14,130), s(14,130), s(14,130)] },
       { date: D.jun12, sets: [s(12,130), s(12,130), s(12,130), s(11,130)] },
       { date: D.jun19, sets: [s(12,130), s(12,130), s(12,130), s(12,130)] },
+      { date: D.jun26, sets: [s(12,140), s(12,140), s(12,140), s(12,140)] },
     ],
     '3::Leg Extension': [
       { date: D.may21, sets: [s(12,220), s(12,220), s(12,220)] },
       { date: D.jun5,  sets: [s(12,220), s(12,220), s(12,220)] },
       { date: D.jun12, sets: [s(12,230), s(12,230), s(12,230)] },
       { date: D.jun19, sets: [s(12,240), s(12,240), s(12,240)] },
+      { date: D.jun26, sets: [s(12,250), s(12,250), s(10,250)] },
     ],
     '3::Hip Adduction': [
       { date: D.may21, sets: [s(15,130), s(15,120)] },
       { date: D.jun5,  sets: [s(15,130), s(13,130)] },
       { date: D.jun12, sets: [s(15,130), s(15,130)] },
       { date: D.jun19, sets: [s(15,140), s(11,140)] },
+      { date: D.jun26, sets: [s(15,140), s(13,140)] },
     ],
     '3::Hip Abduction': [
       { date: D.may21, sets: [s(15,190), s(15,180)] },
       { date: D.jun5,  sets: [s(15,190), s(15,190)] },
       { date: D.jun12, sets: [s(15,200), s(12,200)] },
       { date: D.jun19, sets: [s(15,190), s(15,190)] },
+      { date: D.jun26, sets: [s(15,200), s(15,200)] },
     ],
     '3::Standing Calf Raise': [
       { date: D.may21, sets: [s(15,120), s(15,110), s(15,110)], prog: { kind: 'weight', toWeight: 130 } },
       { date: D.jun5,  sets: [s(15,130), s(15,130), s(15,130)] },
       { date: D.jun12, sets: [s(15,130), s(15,130), s(15,130)] },
       { date: D.jun19, sets: [s(15,130), s(15,130), s(15,130)] },
+      { date: D.jun26, sets: [s(15,140), s(15,140), s(15,140)] },
     ],
     '3::Dead Bug': [
       { date: D.jun5,  sets: [s(8,0), s(8,0), s(8,0)] },
       { date: D.jun12, sets: [s(9,0), s(9,0), s(9,0)] },
       { date: D.jun19, sets: [s(10,0), s(10,0), s(10,0)] },
+      { date: D.jun26, sets: [s(10,0), s(10,0), s(10,0)] },
     ],
     '3::Cable Woodchop': [
       { date: D.may21, sets: [s(13,38), s(12,38), s(12,33)] },
       { date: D.jun5,  sets: [s(13,45), s(13,38), s(13,38)] },
       { date: D.jun12, sets: [s(14,38), s(14,38), s(14,38)] },
       { date: D.jun19, sets: [s(15,38), s(15,38), s(15,38)] },
+      { date: D.jun26, sets: [s(15,38), s(15,38), s(15,38)] },
     ],
     "3::Farmer's Walk": [
       { date: D.may21, sets: [s(3,55), s(3,40), s(3,40)] },
       { date: D.jun12, sets: [s(1,65), s(1,65), s(1,65)] },
       { date: D.jun19, sets: [s(1,60), s(1,60), s(1,60)] },
+      { date: D.jun26, sets: [s(1,60), s(1,60), s(1,60)] },
     ],
 
     // ── DAY 4 · UPPER ─────────────────────────────────────────
@@ -978,41 +1009,48 @@ Object.assign(window, {
       { date: D.jun7,  sets: [s(12,45), s(12,40), s(12,40)] },
       { date: D.jun14, sets: [s(12,45), s(12,45), s(12,45)] },
       { date: D.jun19, sets: [s(12,50), s(12,50), s(12,50)] },
+      { date: D.jun27, sets: [s(12,57), s(12,57), s(12,57)] },
     ],
     '4::Neutral-Grip Row Machine': [
       { date: D.may21, sets: [s(12,99), s(11,99), s(10,99)] },
       { date: D.jun7,  sets: [s(12,99), s(12,99), s(12,99)] },
       { date: D.jun14, sets: [s(13,104), s(12,110), s(12,115)] },
       { date: D.jun19, sets: [s(12,115), s(12,115), s(12,115)] },
+      { date: D.jun27, sets: [s(12,121), s(12,121), s(12,121)] },
     ],
     '4::Lateral Raise': [
       { date: D.may21, sets: [s(15,20), s(15,17.5), s(15,17.5)] },
       { date: D.jun7,  sets: [s(16,17.5), s(15,17.5), s(15,17.5)] },
       { date: D.jun14, sets: [s(15,20), s(15,20), s(15,20)] },
       { date: D.jun19, sets: [s(16,20), s(15,20), s(15,20)] },
+      { date: D.jun27, sets: [s(15,22.5), s(15,22.5), s(15,22.5)] },
     ],
     '4::Cable Fly': [
       { date: D.may21, sets: [s(15,25), s(15,22), s(15,22)] },
       { date: D.jun7,  sets: [s(15,22), s(15,22), s(15,22)] },
       { date: D.jun14, sets: [s(15,33), s(15,33), s(15,37)] },
       { date: D.jun19, sets: [s(15,37), s(11,37), s(10,37)] },
+      { date: D.jun27, sets: [s(12,40), s(10,40), s(14,40)] },
     ],
     '4::Close-Grip Bench Press': [
       { date: D.may21, sets: [s(11,75), s(10,70), s(10,70)] },
       { date: D.jun14, sets: [s(10,70), s(10,70), s(8,70)] },
       { date: D.jun19, sets: [s(9,70), s(10,70), s(10,70)] },
+      { date: D.jun27, sets: [s(11,70), s(10,70), s(10,70)] },
     ],
     '4::Cable Biceps Curl': [
       { date: D.may21, sets: [s(15,55), s(15,49), s(15,49)], prog: { kind: 'weight', toWeight: 55 } },
       { date: D.jun7,  sets: [s(15,55), s(15,55), s(13,55)] },
       { date: D.jun14, sets: [s(15,55), s(15,55), s(15,55)] },
       { date: D.jun19, sets: [s(15,55), s(15,55), s(13,55)] },
+      { date: D.jun27, sets: [s(15,55), s(15,55), s(15,55)] },
     ],
     '4::Reverse Curl': [
       { date: D.may21, sets: [s(12,22.5), s(11,20), s(10,20)] },
       { date: D.jun7,  sets: [s(14,22.5), s(12,22.5), s(12,22.5)] },
       { date: D.jun14, sets: [s(14,22.5), s(12,22.5), s(12,22.5)] },
       { date: D.jun19, sets: [s(12,22.5), s(12,22.5), s(12,22.5)] },
+      { date: D.jun27, sets: [s(12,25), s(12,25), s(10,25)] },
     ],
   };
 
