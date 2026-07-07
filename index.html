@@ -180,7 +180,7 @@ const DEFAULT_ROUTINE = {
     {
       id: 1, name: 'PULL', subtitle: 'Back · Biceps · Forearms',
       exercises: [
-        ex('Chest-Supported Row Machine', 3, 8, 10, 140, 160, 12),
+        ex('Low Rows', 3, 10, 12, 121, 121, 12),
         ex('Lat Pulldown', 3, 8, 10, 110, 121, 12),
         ex('Cable Straight-Arm Pulldown', 3, 12, 15, 33, 44, 15),
         ex('Rear Delt Fly Machine', 3, 15, 15, 70, 80, 15),
@@ -2622,11 +2622,65 @@ function refreshTargetsFromSeed(store) {
   return store;
 }
 
+// ── Seed-rename migration ─────────────────────────────────────
+// When a seed exercise is renamed its cryptoId changes (IDs are derived from
+// name). Add an entry here for every such rename; the migration finds the old
+// exercise in the stored list, re-IDs it in place, merges any sessions/notes
+// that accumulated under either ID, and removes any phantom duplicate that
+// reconcileDays may have already appended.  Runs on every reconcileStore call
+// but is idempotent: after the first pass the old ID is gone, so it's a no-op.
+const SEED_RENAMES = [
+  // Jul 2026: Chest-Supported Row Machine → Low Rows
+  {
+    oldId: cryptoId('d1_Chest-Supported Row Machine'),
+    newId: cryptoId('d1_Low Rows'),
+  },
+];
+
+function applySeedRenames(store) {
+  const isoDay = iso => String(iso).slice(0, 10);
+  for (const { oldId, newId } of SEED_RENAMES) {
+    // 1. Re-ID the exercise in place; track which day it lives in.
+    let targetDay = null;
+    for (const d of (store.days || [])) {
+      for (const e of d.exercises) {
+        if (e.id === oldId) { e.id = newId; targetDay = d; }
+      }
+    }
+    // 2. Remove any phantom duplicate with newId that reconcileDays may have
+    //    previously appended (keep only the first occurrence = the original slot).
+    if (targetDay) {
+      let seen = false;
+      targetDay.exercises = targetDay.exercises.filter(e => {
+        if (e.id !== newId) return true;
+        if (!seen) { seen = true; return true; }
+        return false; // drop phantom
+      });
+    }
+    // 3. Merge sessions: combine old-ID and new-ID arrays, deduplicate by date.
+    const oldSessions = store.sessions[oldId];
+    if (oldSessions) {
+      const existing = store.sessions[newId] || [];
+      const existingDates = new Set(existing.map(s => isoDay(s.date)));
+      const additions = oldSessions.filter(s => !existingDates.has(isoDay(s.date)));
+      store.sessions[newId] = [...existing, ...additions]
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+      delete store.sessions[oldId];
+    }
+    // 4. Transfer notes (if any).
+    if (store.notes && store.notes[oldId] && !store.notes[newId]) {
+      store.notes[newId] = store.notes[oldId];
+      delete store.notes[oldId];
+    }
+  }
+}
+
 // Full non-destructive reconciliation: bring the store up to the current
 // seed (definitions + hardcoded history), keeping all logged data, then
 // stamp the version. Safe to run on every load (idempotent).
 function reconcileStore(store) {
   const upgrading = store.seedVersion !== SEED_VERSION;
+  applySeedRenames(store); // must run before reconcileDays
   reconcileDays(store);
   // One-time, on a version bump only: align targets with the latest seed so
   // existing installs reflect the new (June) progression. Never re-runs once
