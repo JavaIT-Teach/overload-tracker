@@ -583,6 +583,7 @@ const VERDICT = {
   repeat:   { kind: 'repeat',   text: 'Repeat weight next session.' },
   hold:     { kind: 'hold',     text: 'Logged \u2014 keep working within current range.' },
   increase: { kind: 'increase', text: 'Weight range increases.' },
+  repsCap:  { kind: 'hold',     text: 'Rep target hit \u2014 add weight when ready.' },
 };
 
 // The verdict for one just-logged set. Returns null if the set is incomplete.
@@ -591,6 +592,11 @@ function nextSessionVerdict(ex, set) {
   const reps = set.reps, weight = set.weight;
   // 1 — below the rep floor: hold the load, repeat next session.
   if (reps < ex.repMin) return VERDICT.repeat;
+  // Reps-type: weight increase is optional/user-driven; hitting the rep ceiling
+  // shows the cap badge but never auto-promotes the weight range.
+  if (ex.progressionType === 'reps') {
+    return reps >= ex.repMax ? VERDICT.repsCap : VERDICT.hold;
+  }
   // 3 — both ceilings reached in this set: the weight range steps up.
   //     Bodyweight is excluded (no weight ceiling to raise) and falls to hold.
   if (!isBodyweight(ex) && reps >= ex.repMax && weight >= ex.weightMax) return VERDICT.increase;
@@ -679,6 +685,13 @@ Object.assign(window, {
 // sits after the June sessions.
 
 (function() {
+  // Exercises where rep count is the primary progression signal; weight
+  // increases are optional and user-driven rather than auto-prompted.
+  const REPS_TYPE_NAMES = new Set([
+    'Romanian Deadlift', "Farmer's Walk",
+    'Behind-the-Back Finger Curls', 'Dead Bug',
+  ]);
+
   function makeEx(dayId, name, def, opts = {}) {
     return {
       id: cryptoId(`d${dayId}_${name}`),
@@ -691,6 +704,7 @@ Object.assign(window, {
       unit: opts.unit ?? 'lbs',
       notation: opts.notation ?? null,
       repUnit: opts.repUnit ?? 'reps',
+      progressionType: REPS_TYPE_NAMES.has(name) ? 'reps' : 'load',
     };
   }
 
@@ -2222,6 +2236,39 @@ function PrevSessionChip({ ex, history }) {
   );
 }
 
+// ── Progression-type toggle ────────────────────────────────────
+// Two-way pill: Load (standard double-progression) vs Reps (rep-first,
+// weight increase optional/manual). Surfaced in both EditRow and LiveSettingsPanel.
+function ProgressionTypeToggle({ value, onChange }) {
+  const opts = [
+    { key: 'load', label: 'Load', desc: 'Weight increases when rep ceiling is hit' },
+    { key: 'reps', label: 'Reps', desc: 'Rep ceiling hit — add weight when ready' },
+  ];
+  return (
+    <div>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+        textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6,
+      }}>Progression type</div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {opts.map(o => {
+          const active = value === o.key;
+          return (
+            <button key={o.key} onClick={() => onChange(o.key)} className="tap" style={{
+              flex: 1, height: 34, borderRadius: 6, fontSize: 12, fontWeight: active ? 700 : 500,
+              fontFamily: 'var(--font-sans)',
+              background: active ? 'var(--accent)' : 'var(--paper)',
+              color: active ? '#FFFFFF' : 'var(--ink-2)',
+              border: active ? 'none' : '1px solid var(--hair)',
+              letterSpacing: active ? '0.02em' : 0,
+            }}>{o.label}</button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Per-exercise settings — inline expand/collapse, explicit Cancel/Save ──
 // Scoped to exactly the exercise that's live. Drafts are local until Save;
 // Cancel discards them. No partial/implicit commits.
@@ -2230,6 +2277,7 @@ function LiveSettingsPanel({ ex, onSave, onCancel }) {
     name: ex.name, sets: ex.sets, repCap: ex.repCap,
     repMin: ex.repMin, repMax: ex.repMax,
     weightMin: ex.weightMin, weightMax: ex.weightMax,
+    progressionType: ex.progressionType || 'load',
   });
 
   const set = (patch) => setDraft(d => ({ ...d, ...patch }));
@@ -2282,6 +2330,13 @@ function LiveSettingsPanel({ ex, onSave, onCancel }) {
       }}>
         <NumField label={`Wt min (${ex.unit || '—'})`} value={draft.weightMin} step={ex.weightStep} min={0} max={draft.weightMax} onChange={v => set({ weightMin: v })} />
         <NumField label={`Wt max (${ex.unit || '—'})`} value={draft.weightMax} step={ex.weightStep} min={draft.weightMin} max={9999} onChange={v => set({ weightMax: v })} />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <ProgressionTypeToggle
+          value={draft.progressionType}
+          onChange={v => set({ progressionType: v })}
+        />
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
@@ -2616,6 +2671,7 @@ function refreshTargetsFromSeed(store) {
       e.unit = sd.unit;
       e.notation = sd.notation;
       e.repUnit = sd.repUnit;
+      if (sd.progressionType) e.progressionType = sd.progressionType;
       delete e.plateau; // clear stale plateau flag on refreshed targets
     });
   });
@@ -3026,6 +3082,7 @@ function App() {
       unit: 'lbs',
       notation: null,
       repUnit: 'reps',
+      progressionType: 'load',
     };
     updateDays(days => days.map(d => d.id === dayId ? {
       ...d, exercises: [...d.exercises, blank],
@@ -3668,6 +3725,12 @@ function EditRow({ ex, index, onHandleDown, dragging, onUpdate, onRemove, onTogg
       }}>
         <NumField label={`Wt min (${ex.unit || '—'})`} value={ex.weightMin} step={ex.weightStep} min={0} max={ex.weightMax} onChange={v => onUpdate(ex.id, { weightMin: v })} />
         <NumField label={`Wt max (${ex.unit || '—'})`} value={ex.weightMax} step={ex.weightStep} min={ex.weightMin} max={9999} onChange={v => onUpdate(ex.id, { weightMax: v })} />
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <ProgressionTypeToggle
+          value={ex.progressionType || 'load'}
+          onChange={v => onUpdate(ex.id, { progressionType: v })}
+        />
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         <button onClick={() => onTogglePlateau(ex.id)} className="tap" style={{
