@@ -2810,6 +2810,7 @@ function App() {
   const [editMode, setEditMode] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   // Live Exercise Mode — { exId, originRect } of the tapped card, or null.
   const [liveEx, setLiveEx] = useState(null);
   // Bumped on every preset write so the list re-reads from localStorage.
@@ -3113,6 +3114,51 @@ function App() {
     }
   };
 
+  // ── History-edit mutations ────────────────────────────────────
+  // Replace the sets array for a specific exercise session on a given date.
+  // Only touches store.sessions[exId]; all other exercises/dates are untouched.
+  const editHistorySets = (exId, dateKey, newSets) => {
+    setStore(s => {
+      const arr = (s.sessions[exId] || []).map(sess =>
+        localDateKey(sess.date) === dateKey ? { ...sess, sets: newSets } : sess
+      );
+      return { ...s, sessions: { ...s.sessions, [exId]: arr } };
+    });
+  };
+
+  // Add a brand-new session entry for an exercise on a past date (the exercise
+  // had no session logged that day originally).
+  const addHistorySession = (exId, dateKey, sets) => {
+    const ex = findEx(store, exId);
+    if (!ex) return;
+    const entry = {
+      date: dateKey + 'T12:00:00.000Z',
+      sets,
+      note: '',
+      status: 'hold',
+      unit: ex.unit,
+      target: targetString(ex),
+      summary: null,
+    };
+    setStore(s => ({
+      ...s,
+      sessions: {
+        ...s.sessions,
+        [exId]: [...(s.sessions[exId] || []), entry],
+      },
+    }));
+  };
+
+  // Remove the session entry for a specific exercise on a given date entirely.
+  const removeHistorySession = (exId, dateKey) => {
+    setStore(s => {
+      const arr = (s.sessions[exId] || []).filter(
+        sess => localDateKey(sess.date) !== dateKey
+      );
+      return { ...s, sessions: { ...s.sessions, [exId]: arr } };
+    });
+  };
+
   const importJson = (json) => {
     try {
       const parsed = typeof json === 'string' ? JSON.parse(json) : json;
@@ -3211,6 +3257,15 @@ function App() {
               color: 'var(--muted)', textTransform: 'uppercase',
             }}>Progressive Overload</div>
             <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
+            <button
+              onClick={() => setShowHistory(true)}
+              className="tap"
+              style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+                color: 'var(--ink-2)', textTransform: 'uppercase',
+                padding: '8px 0',
+              }}
+            >History</button>
             <button
               onClick={() => setShowExport(true)}
               className="tap"
@@ -3382,6 +3437,16 @@ function App() {
         <ExportSheet
           store={store}
           onClose={() => setShowExport(false)}
+        />
+      )}
+
+      {showHistory && (
+        <HistorySheet
+          store={store}
+          onEditSets={editHistorySets}
+          onAddSession={addHistorySession}
+          onRemoveSession={removeHistorySession}
+          onClose={() => setShowHistory(false)}
         />
       )}
 
@@ -4252,6 +4317,674 @@ function ExportSheet({ store, onClose }) {
 }
 
 // ── Sheet (modal) ─────────────────────────────────────────────
+// ── History browsing & editing ────────────────────────────────
+
+// Collect every distinct logged date across all exercises, newest first.
+function allLoggedDates(store) {
+  const seen = new Set();
+  for (const sess of Object.values(store.sessions || {})) {
+    for (const s of (sess || [])) {
+      if (s && s.date) seen.add(localDateKey(s.date));
+    }
+  }
+  return [...seen].sort((a, b) => (a < b ? 1 : -1));
+}
+
+// ── HistorySheet — date-list picker ──────────────────────────
+function HistorySheet({ store, onEditSets, onAddSession, onRemoveSession, onClose }) {
+  const [editingDate, setEditingDate] = useState(null);
+  const dates = allLoggedDates(store);
+
+  if (editingDate) {
+    return (
+      <HistoryDayEditor
+        store={store}
+        dateKey={editingDate}
+        onEditSets={onEditSets}
+        onAddSession={onAddSession}
+        onRemoveSession={onRemoveSession}
+        onBack={() => setEditingDate(null)}
+        onClose={onClose}
+      />
+    );
+  }
+
+  return (
+    <Sheet onClose={onClose} title="History">
+      {dates.length === 0 && (
+        <div style={{
+          padding: '22px 16px', borderRadius: 8,
+          border: '1px dashed var(--rule-thick)',
+          textAlign: 'center', fontSize: 13.5, color: 'var(--muted)', fontWeight: 500,
+        }}>
+          No sessions logged yet.
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {dates.map(dk => {
+          const groups = sessionsForDate(store, dk);
+          const dayNames = [...new Set(groups.map(g => g.day.name))].join(' · ');
+          const exCount = groups.reduce((n, g) => n + g.items.length, 0);
+          const isToday = dk === localDateKey(new Date());
+          return (
+            <button
+              key={dk}
+              onClick={() => setEditingDate(dk)}
+              className="tap"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                width: '100%', padding: '14px 0',
+                borderBottom: '1px solid var(--hair)',
+                background: 'none', textAlign: 'left',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 600,
+                  color: 'var(--ink)', letterSpacing: '-0.01em',
+                }}>
+                  {prettyDateFromKey(dk)}
+                  {isToday && (
+                    <span style={{
+                      marginLeft: 8, fontSize: 10, fontWeight: 700,
+                      fontFamily: 'var(--font-mono)', letterSpacing: '0.10em',
+                      textTransform: 'uppercase', color: 'var(--accent)',
+                    }}>Today</span>
+                  )}
+                </div>
+                <div style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em',
+                  textTransform: 'uppercase', color: 'var(--muted)', marginTop: 3,
+                }}>
+                  {dayNames} · {exCount} exercise{exCount !== 1 ? 's' : ''}
+                </div>
+              </div>
+              <span style={{ color: 'var(--muted)', fontSize: 18, flexShrink: 0 }}>›</span>
+            </button>
+          );
+        })}
+      </div>
+    </Sheet>
+  );
+}
+
+// ── HistoryDayEditor — edit one past day's sessions ───────────
+function HistoryDayEditor({ store, dateKey, onEditSets, onAddSession, onRemoveSession, onBack, onClose }) {
+  const isToday = dateKey === localDateKey(new Date());
+  const pretty = prettyDateFromKey(dateKey);
+
+  // All exercises that were logged on this date, by day group
+  const groups = sessionsForDate(store, dateKey);
+
+  // Per-exercise local set state: { [exId]: sets[] } — drives the inline editors
+  const [localSets, setLocalSets] = useState(() => {
+    const init = {};
+    for (const g of groups) {
+      for (const { ex, session } of g.items) {
+        init[ex.id] = session.sets.map(s => ({ ...s }));
+      }
+    }
+    return init;
+  });
+
+  // Track which exercises are "dirty" (local edits not yet saved)
+  const [dirty, setDirty] = useState({});
+
+  // Which exercise is showing the remove-session confirm prompt
+  const [confirmRemove, setConfirmRemove] = useState(null);
+
+  // Which set index is showing the remove-set confirm prompt: { exId, idx }
+  const [confirmRemoveSet, setConfirmRemoveSet] = useState(null);
+
+  // "Add exercise" panel open?
+  const [addingEx, setAddingEx] = useState(null); // null | dayId
+
+  const updateLocalSet = (exId, idx, field, rawVal) => {
+    const val = rawVal === '' ? '' : Number(rawVal);
+    setLocalSets(prev => {
+      const sets = prev[exId].map((s, i) => i === idx ? { ...s, [field]: val } : s);
+      return { ...prev, [exId]: sets };
+    });
+    setDirty(prev => ({ ...prev, [exId]: true }));
+  };
+
+  const saveEdits = (exId) => {
+    const sets = localSets[exId];
+    // Filter out any set with empty/non-numeric reps or weight
+    const valid = sets.filter(s => Number.isFinite(s.reps) && (Number.isFinite(s.weight) || s.weight === 0));
+    if (!valid.length) return;
+    onEditSets(exId, dateKey, valid);
+    setDirty(prev => ({ ...prev, [exId]: false }));
+  };
+
+  const addSet = (exId) => {
+    setLocalSets(prev => {
+      const sets = prev[exId];
+      const last = sets[sets.length - 1] || { reps: 8, weight: 0 };
+      return { ...prev, [exId]: [...sets, { reps: last.reps, weight: last.weight }] };
+    });
+    setDirty(prev => ({ ...prev, [exId]: true }));
+  };
+
+  const requestRemoveSet = (exId, idx) => {
+    setConfirmRemoveSet({ exId, idx });
+  };
+
+  const confirmDoRemoveSet = () => {
+    if (!confirmRemoveSet) return;
+    const { exId, idx } = confirmRemoveSet;
+    setLocalSets(prev => {
+      const sets = prev[exId].filter((_, i) => i !== idx);
+      return { ...prev, [exId]: sets };
+    });
+    setDirty(prev => ({ ...prev, [exId]: true }));
+    setConfirmRemoveSet(null);
+  };
+
+  const requestRemoveSession = (exId) => setConfirmRemove(exId);
+
+  const confirmDoRemoveSession = () => {
+    if (!confirmRemove) return;
+    onRemoveSession(confirmRemove, dateKey);
+    setConfirmRemove(null);
+    // Remove from local state
+    setLocalSets(prev => {
+      const next = { ...prev };
+      delete next[confirmRemove];
+      return next;
+    });
+  };
+
+  // All exercises on any day's routine that aren't already logged this date
+  const loggedExIds = new Set(
+    groups.flatMap(g => g.items.map(({ ex }) => ex.id))
+  );
+
+  // Get all exercises for a given day that aren't yet logged this date
+  const unloggedForDay = (day) =>
+    day.exercises.filter(ex => !loggedExIds.has(ex.id));
+
+  const [newExSets, setNewExSets] = useState([{ reps: 8, weight: 0 }]);
+
+  const resetAddPanel = () => {
+    setAddingEx(null);
+    setNewExSets([{ reps: 8, weight: 0 }]);
+  };
+
+  const submitNewSession = (exId) => {
+    const valid = newExSets.filter(s => Number.isFinite(s.reps) && Number.isFinite(s.weight));
+    if (!valid.length) return;
+    onAddSession(exId, dateKey, valid);
+    // Optimistically add to local state so the editor shows immediately
+    setLocalSets(prev => ({ ...prev, [exId]: valid.map(s => ({ ...s })) }));
+    resetAddPanel();
+  };
+
+  const inputStyle = {
+    width: 60, height: 34, borderRadius: 6, border: '1px solid var(--hair)',
+    background: 'var(--paper)', color: 'var(--ink)',
+    fontFamily: 'var(--font-mono)', fontSize: 14, textAlign: 'center',
+    outline: 'none', padding: '0 4px',
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'absolute', inset: 0, zIndex: 100,
+        background: 'rgba(20, 18, 14, 0.32)',
+        display: 'flex', alignItems: 'flex-end',
+        backdropFilter: 'blur(2px)',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: '100%', maxHeight: '92%',
+          background: 'var(--paper)',
+          borderRadius: '16px 16px 0 0',
+          overflow: 'auto',
+          boxShadow: '0 -10px 30px rgba(0,0,0,0.12)',
+        }}
+      >
+        {/* History-edit banner — always visible at top */}
+        {!isToday && (
+          <div style={{
+            background: '#FFF7E6',
+            borderBottom: '2px solid #F5A623',
+            padding: '10px 22px',
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+              letterSpacing: '0.12em', textTransform: 'uppercase', color: '#C17B00',
+            }}>Editing historical data</span>
+            <span style={{ flex: 1 }} />
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, color: '#C17B00',
+              letterSpacing: '0.06em',
+            }}>{pretty}</span>
+          </div>
+        )}
+
+        <div style={{ padding: '14px 22px 32px' }}>
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--hair)', margin: '0 auto 18px' }} />
+
+          {/* Header row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 22 }}>
+            <button onClick={onBack} className="tap" style={{
+              fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--accent)',
+              letterSpacing: '0.06em', padding: '4px 0',
+            }}>‹ Back</button>
+            <h2 style={{
+              flex: 1, margin: 0, fontFamily: 'var(--font-sans)', fontWeight: 700,
+              fontSize: 22, color: 'var(--ink)', letterSpacing: '-0.02em',
+            }}>{pretty}</h2>
+            <button onClick={onClose} className="tap" style={{
+              fontSize: 22, color: 'var(--muted)', padding: '0 8px',
+            }}>×</button>
+          </div>
+
+          {/* Per-exercise editors */}
+          {groups.map(g => (
+            <div key={g.day.id} style={{ marginBottom: 28 }}>
+              <div style={{
+                fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em',
+                textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700,
+                marginBottom: 14,
+              }}>Day {g.day.id} · {g.day.name}</div>
+
+              {g.items.map(({ ex }) => {
+                const sets = localSets[ex.id] || [];
+                const isDirty = dirty[ex.id];
+                const verdict = governingVerdict(ex, sets);
+                const vTone = verdict.kind === 'increase' ? '#2E7172'
+                            : verdict.kind === 'repeat'   ? '#C0392B'
+                            : '#888';
+                return (
+                  <div key={ex.id} style={{
+                    background: 'var(--card-bg)', borderRadius: 14,
+                    border: '0.5px solid rgba(0,0,0,0.07)',
+                    padding: '16px 16px 14px', marginBottom: 12,
+                  }}>
+                    {/* Exercise name + remove */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                      <span style={{
+                        flex: 1, fontFamily: 'var(--font-sans)', fontSize: 15,
+                        fontWeight: 600, color: 'var(--ink)', letterSpacing: '-0.01em',
+                      }}>{ex.name}</span>
+                      <span style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+                        letterSpacing: '0.08em', textTransform: 'uppercase', color: vTone,
+                      }}>{verdict.text.split(' ')[0]}</span>
+                      <button
+                        onClick={() => requestRemoveSession(ex.id)}
+                        className="tap"
+                        style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                          textTransform: 'uppercase', color: '#C0392B',
+                          border: '1px solid rgba(192,57,43,0.3)', borderRadius: 4,
+                          padding: '3px 8px',
+                        }}
+                      >Remove</button>
+                    </div>
+
+                    {/* Column labels */}
+                    <div style={{
+                      display: 'grid', gridTemplateColumns: '24px 1fr 1fr 28px',
+                      gap: 6, alignItems: 'center', marginBottom: 6,
+                    }}>
+                      <span />
+                      <span style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                        textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'center',
+                      }}>Reps</span>
+                      <span style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                        textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'center',
+                      }}>{ex.unit || 'BW'}</span>
+                      <span />
+                    </div>
+
+                    {/* Set rows */}
+                    {sets.map((s, idx) => (
+                      <div key={idx} style={{
+                        display: 'grid', gridTemplateColumns: '24px 1fr 1fr 28px',
+                        gap: 6, alignItems: 'center', marginBottom: 8,
+                      }}>
+                        <span style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)',
+                          textAlign: 'center',
+                        }}>{idx + 1}</span>
+                        <input
+                          type="number"
+                          value={s.reps}
+                          onChange={e => updateLocalSet(ex.id, idx, 'reps', e.target.value)}
+                          style={inputStyle}
+                        />
+                        {ex.unit !== '' ? (
+                          <input
+                            type="number"
+                            value={s.weight}
+                            onChange={e => updateLocalSet(ex.id, idx, 'weight', e.target.value)}
+                            style={inputStyle}
+                          />
+                        ) : (
+                          <span style={{
+                            textAlign: 'center', fontFamily: 'var(--font-mono)',
+                            fontSize: 12, color: 'var(--muted)',
+                          }}>—</span>
+                        )}
+                        <button
+                          onClick={() => requestRemoveSet(ex.id, idx)}
+                          className="tap"
+                          style={{
+                            width: 24, height: 24, borderRadius: 4,
+                            border: '1px solid var(--hair)', background: 'none',
+                            color: 'var(--muted)', fontSize: 14, lineHeight: 1,
+                          }}
+                        >×</button>
+                      </div>
+                    ))}
+
+                    {/* Add set + Save row */}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                      <button
+                        onClick={() => addSet(ex.id)}
+                        className="tap"
+                        style={{
+                          flex: 1, height: 34, borderRadius: 6,
+                          border: '1px dashed var(--rule-thick)', background: 'none',
+                          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                          textTransform: 'uppercase', color: 'var(--muted)',
+                        }}
+                      >+ Set</button>
+                      {isDirty && (
+                        <button
+                          onClick={() => saveEdits(ex.id)}
+                          className="tap"
+                          style={{
+                            flex: 1, height: 34, borderRadius: 6,
+                            background: 'var(--accent)', border: 'none',
+                            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                            textTransform: 'uppercase', color: '#fff', fontWeight: 700,
+                          }}
+                        >Save</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+
+          {/* Add exercise section */}
+          {store.days.some(d => unloggedForDay(d).length > 0) && (
+            <div style={{ marginTop: 8 }}>
+              {addingEx === null ? (
+                <button
+                  onClick={() => setAddingEx('pick')}
+                  className="tap"
+                  style={{
+                    width: '100%', height: 44, borderRadius: 8,
+                    border: '1px dashed var(--rule-thick)', background: 'none',
+                    fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+                    textTransform: 'uppercase', color: 'var(--muted)',
+                  }}
+                >+ Add Exercise</button>
+              ) : addingEx === 'pick' ? (
+                <div style={{
+                  background: 'var(--card-bg)', borderRadius: 14,
+                  border: '0.5px solid rgba(0,0,0,0.07)', padding: '16px',
+                }}>
+                  <div style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em',
+                    textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12,
+                  }}>Choose exercise</div>
+                  {store.days.map(d => {
+                    const available = unloggedForDay(d);
+                    if (!available.length) return null;
+                    return (
+                      <div key={d.id} style={{ marginBottom: 10 }}>
+                        <div style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em',
+                          textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 6,
+                        }}>Day {d.id} · {d.name}</div>
+                        {available.map(ex => (
+                          <button
+                            key={ex.id}
+                            onClick={() => setAddingEx(ex.id)}
+                            className="tap"
+                            style={{
+                              display: 'block', width: '100%', textAlign: 'left',
+                              padding: '10px 12px', borderRadius: 6,
+                              border: '1px solid var(--hair)', background: 'none',
+                              fontFamily: 'var(--font-sans)', fontSize: 14, color: 'var(--ink)',
+                              marginBottom: 6,
+                            }}
+                          >{ex.name}</button>
+                        ))}
+                      </div>
+                    );
+                  })}
+                  <button onClick={resetAddPanel} className="tap" style={{
+                    marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 10,
+                    letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--muted)',
+                  }}>Cancel</button>
+                </div>
+              ) : (
+                // addingEx is an exId — show the set-entry form
+                (() => {
+                  const ex = findEx(store, addingEx);
+                  if (!ex) return null;
+                  return (
+                    <div style={{
+                      background: 'var(--card-bg)', borderRadius: 14,
+                      border: '0.5px solid rgba(0,0,0,0.07)', padding: '16px',
+                    }}>
+                      <div style={{
+                        fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 600,
+                        color: 'var(--ink)', marginBottom: 14,
+                      }}>{ex.name}</div>
+                      <div style={{
+                        display: 'grid', gridTemplateColumns: '24px 1fr 1fr 28px',
+                        gap: 6, alignItems: 'center', marginBottom: 6,
+                      }}>
+                        <span />
+                        <span style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                          textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'center',
+                        }}>Reps</span>
+                        <span style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                          textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'center',
+                        }}>{ex.unit || 'BW'}</span>
+                        <span />
+                      </div>
+                      {newExSets.map((s, idx) => (
+                        <div key={idx} style={{
+                          display: 'grid', gridTemplateColumns: '24px 1fr 1fr 28px',
+                          gap: 6, alignItems: 'center', marginBottom: 8,
+                        }}>
+                          <span style={{
+                            fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)',
+                            textAlign: 'center',
+                          }}>{idx + 1}</span>
+                          <input
+                            type="number"
+                            value={s.reps}
+                            onChange={e => {
+                              const v = e.target.value === '' ? '' : Number(e.target.value);
+                              setNewExSets(prev => prev.map((r, i) => i === idx ? { ...r, reps: v } : r));
+                            }}
+                            style={inputStyle}
+                          />
+                          {ex.unit !== '' ? (
+                            <input
+                              type="number"
+                              value={s.weight}
+                              onChange={e => {
+                                const v = e.target.value === '' ? '' : Number(e.target.value);
+                                setNewExSets(prev => prev.map((r, i) => i === idx ? { ...r, weight: v } : r));
+                              }}
+                              style={inputStyle}
+                            />
+                          ) : (
+                            <span style={{
+                              textAlign: 'center', fontFamily: 'var(--font-mono)',
+                              fontSize: 12, color: 'var(--muted)',
+                            }}>—</span>
+                          )}
+                          {newExSets.length > 1 && (
+                            <button
+                              onClick={() => setNewExSets(prev => prev.filter((_, i) => i !== idx))}
+                              className="tap"
+                              style={{
+                                width: 24, height: 24, borderRadius: 4,
+                                border: '1px solid var(--hair)', background: 'none',
+                                color: 'var(--muted)', fontSize: 14, lineHeight: 1,
+                              }}
+                            >×</button>
+                          )}
+                        </div>
+                      ))}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                        <button
+                          onClick={() => setNewExSets(prev => {
+                            const last = prev[prev.length - 1];
+                            return [...prev, { reps: last.reps, weight: last.weight }];
+                          })}
+                          className="tap"
+                          style={{
+                            flex: 1, height: 34, borderRadius: 6,
+                            border: '1px dashed var(--rule-thick)', background: 'none',
+                            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                            textTransform: 'uppercase', color: 'var(--muted)',
+                          }}
+                        >+ Set</button>
+                        <button
+                          onClick={() => submitNewSession(addingEx)}
+                          className="tap"
+                          style={{
+                            flex: 1, height: 34, borderRadius: 6,
+                            background: 'var(--accent)', border: 'none',
+                            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                            textTransform: 'uppercase', color: '#fff', fontWeight: 700,
+                          }}
+                        >Add</button>
+                        <button
+                          onClick={resetAddPanel}
+                          className="tap"
+                          style={{
+                            flex: 1, height: 34, borderRadius: 6,
+                            border: '1px solid var(--hair)', background: 'none',
+                            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                            textTransform: 'uppercase', color: 'var(--muted)',
+                          }}
+                        >Cancel</button>
+                      </div>
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Confirm: remove set */}
+        {confirmRemoveSet && (
+          <div
+            onClick={() => setConfirmRemoveSet(null)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 200,
+              background: 'rgba(20,18,14,0.45)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                background: 'var(--paper)', borderRadius: 14, padding: '24px 22px',
+                width: 280, boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+              }}
+            >
+              <div style={{
+                fontFamily: 'var(--font-sans)', fontSize: 17, fontWeight: 700,
+                color: 'var(--ink)', marginBottom: 8,
+              }}>Remove set {confirmRemoveSet.idx + 1}?</div>
+              <div style={{
+                fontFamily: 'var(--font-sans)', fontSize: 13.5, color: 'var(--muted)',
+                marginBottom: 20,
+              }}>This will delete this set from the historical log. It cannot be undone.</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setConfirmRemoveSet(null)} className="tap" style={{
+                  flex: 1, height: 40, borderRadius: 8,
+                  border: '1px solid var(--hair)', background: 'none',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                  textTransform: 'uppercase', color: 'var(--ink-2)',
+                }}>Cancel</button>
+                <button onClick={confirmDoRemoveSet} className="tap" style={{
+                  flex: 1, height: 40, borderRadius: 8,
+                  background: '#C0392B', border: 'none',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                  textTransform: 'uppercase', color: '#fff', fontWeight: 700,
+                }}>Remove</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Confirm: remove exercise session */}
+        {confirmRemove && (
+          <div
+            onClick={() => setConfirmRemove(null)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 200,
+              background: 'rgba(20,18,14,0.45)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                background: 'var(--paper)', borderRadius: 14, padding: '24px 22px',
+                width: 280, boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+              }}
+            >
+              <div style={{
+                fontFamily: 'var(--font-sans)', fontSize: 17, fontWeight: 700,
+                color: 'var(--ink)', marginBottom: 8,
+              }}>Remove exercise?</div>
+              <div style={{
+                fontFamily: 'var(--font-sans)', fontSize: 13.5, color: 'var(--muted)',
+                marginBottom: 20,
+              }}>
+                This will delete the entire log entry for{' '}
+                <strong>{findEx(store, confirmRemove)?.name}</strong> on {pretty}.
+                Other days and exercises are not affected.
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setConfirmRemove(null)} className="tap" style={{
+                  flex: 1, height: 40, borderRadius: 8,
+                  border: '1px solid var(--hair)', background: 'none',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                  textTransform: 'uppercase', color: 'var(--ink-2)',
+                }}>Cancel</button>
+                <button onClick={confirmDoRemoveSession} className="tap" style={{
+                  flex: 1, height: 40, borderRadius: 8,
+                  background: '#C0392B', border: 'none',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                  textTransform: 'uppercase', color: '#fff', fontWeight: 700,
+                }}>Remove</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Sheet({ title, children, onClose, titleStyle }) {
   return (
     <div
