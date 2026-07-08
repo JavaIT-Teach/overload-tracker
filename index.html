@@ -3488,6 +3488,55 @@ function buildDateEmail(store, dateKey) {
   return { to: EMAIL_TO, subject, body: lines.join('\n').trim(), hasData: true, groups };
 }
 
+// Build the mailto payload for a date range (startKey..endKey inclusive).
+// Days with no logged sessions are skipped silently. If only one date has
+// data, the subject and body degrade to the same format as buildDateEmail.
+function buildRangeEmail(store, startKey, endKey) {
+  // Walk every calendar day in the range.
+  const allDayGroups = []; // [{ dateKey, pretty, groups }]
+  const start = new Date(startKey + 'T00:00:00');
+  const end   = new Date(endKey   + 'T00:00:00');
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const dk = localDateKey(d);
+    const groups = sessionsForDate(store, dk);
+    if (groups.length) allDayGroups.push({ dateKey: dk, pretty: prettyDateFromKey(dk), groups });
+  }
+
+  if (!allDayGroups.length) {
+    const subject = `Training Log — ${prettyDateFromKey(startKey)}–${prettyDateFromKey(endKey)}`;
+    return { to: EMAIL_TO, subject, body: 'No sessions logged in this date range.', hasData: false, allDayGroups };
+  }
+
+  // Subject: single date if only one day, range otherwise.
+  const subject = allDayGroups.length === 1
+    ? `Training Log — ${allDayGroups[0].pretty}`
+    : `Training Log — ${allDayGroups[0].pretty}–${allDayGroups[allDayGroups.length - 1].pretty}`;
+
+  const lines = [subject, ''];
+  for (const { pretty, groups } of allDayGroups) {
+    // Day names from each routine-day group logged that date.
+    const dayNames = [...new Set(groups.map(g => g.day.name))].join(' · ');
+    lines.push(`─── ${pretty} — ${dayNames} ───`);
+    lines.push('');
+    for (const g of groups) {
+      if (groups.length > 1) lines.push(`Day ${g.day.id} · ${g.day.name}`);
+      for (const { ex, session } of g.items) {
+        lines.push(ex.name);
+        const setStr = session.sets.map(st => (
+          ex.unit === ''
+            ? `${st.reps} ${ex.repUnit || 'reps'}`
+            : `${st.reps}×${fmt(st.weight)}${ex.unit ? ' ' + ex.unit : ''}`
+        )).join(', ');
+        lines.push(`  ${setStr}`);
+        if (session.note) lines.push(`  Note: "${session.note}"`);
+      }
+      lines.push('');
+    }
+  }
+
+  return { to: EMAIL_TO, subject, body: lines.join('\n').trim(), hasData: true, allDayGroups };
+}
+
 // Bottom-of-day launcher — opens the date export sheet.
 function ExportLauncherButton({ onOpen }) {
   return (
@@ -3867,22 +3916,67 @@ function ImportSheet({ currentJson, onImport, onClose }) {
 // If only one week of data exists, the picker is skipped automatically.
 function ExportSheet({ store, onClose }) {
   const todayKey = localDateKey(new Date());
-  // "Today" is preselected on every open; the picked date is remembered for
-  // the rest of the browser session.
-  const [mode, setMode] = useState('today'); // 'today' | 'pick'
-  const [picked, setPicked] = useState(() => sessionStorage.getItem('pol_export_date') || todayKey);
-  const dateKey = mode === 'today' ? todayKey : picked;
 
+  const [mode, setMode] = useState('today'); // 'today' | 'pick' | 'range'
+
+  // Single-date state (today / pick modes)
+  const [picked, setPicked] = useState(() => sessionStorage.getItem('pol_export_date') || todayKey);
+
+  // Range state
+  const sevenDaysAgo = (() => {
+    const d = new Date(); d.setDate(d.getDate() - 6); return localDateKey(d);
+  })();
+  const thisWeekMonday = (() => {
+    const d = new Date();
+    const day = d.getDay(); // 0=Sun
+    d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+    return localDateKey(d);
+  })();
+  const [rangeStart, setRangeStart] = useState(() => sessionStorage.getItem('pol_range_start') || sevenDaysAgo);
+  const [rangeEnd,   setRangeEnd]   = useState(() => sessionStorage.getItem('pol_range_end')   || todayKey);
+
+  // Persist single-date pick across sheet opens
   useEffect(() => {
     if (mode === 'pick') sessionStorage.setItem('pol_export_date', picked);
   }, [mode, picked]);
 
-  const { to, subject, body, hasData, groups } = useMemo(
-    () => buildDateEmail(store, dateKey),
-    [store, dateKey]
+  // Persist range across sheet opens
+  useEffect(() => {
+    if (mode === 'range') {
+      sessionStorage.setItem('pol_range_start', rangeStart);
+      sessionStorage.setItem('pol_range_end',   rangeEnd);
+    }
+  }, [mode, rangeStart, rangeEnd]);
+
+  const dateKey = mode === 'today' ? todayKey : picked;
+
+  // Single-day email (today / pick modes)
+  const singleEmail = useMemo(
+    () => mode !== 'range' ? buildDateEmail(store, dateKey) : null,
+    [store, dateKey, mode]
   );
-  const mailHref = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  const totalLogged = hasData ? groups.reduce((n, g) => n + g.items.length, 0) : 0;
+
+  // Range email
+  const rangeEmail = useMemo(
+    () => mode === 'range' ? buildRangeEmail(store, rangeStart, rangeEnd) : null,
+    [store, rangeStart, rangeEnd, mode]
+  );
+
+  const active   = mode === 'range' ? rangeEmail   : singleEmail;
+  const hasData  = active ? active.hasData  : false;
+  const body     = active ? active.body     : '';
+  const subject  = active ? active.subject  : '';
+  const mailHref = `mailto:${EMAIL_TO}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+  // Count total logged sets across the active result
+  const totalLogged = useMemo(() => {
+    if (!hasData) return 0;
+    if (mode === 'range') {
+      return (rangeEmail.allDayGroups || []).reduce((n, { groups }) =>
+        n + groups.reduce((m, g) => m + g.items.length, 0), 0);
+    }
+    return (singleEmail.groups || []).reduce((n, g) => n + g.items.length, 0);
+  }, [hasData, mode, singleEmail, rangeEmail]);
 
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -3904,96 +3998,216 @@ function ExportSheet({ store, onClose }) {
     transition: 'background 120ms ease, color 120ms ease, border-color 120ms ease',
   });
 
-  return (
-    <Sheet onClose={onClose} title="Export" titleStyle={{ fontSize: 24, overflow: 'visible', textOverflow: 'clip', flexShrink: 0 }}>
-      <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, margin: '0 0 16px' }}>
-        Email or copy every session logged on a single date.
-      </p>
+  const dateInputStyle = {
+    width: '100%', height: 48, padding: '0 14px',
+    border: '1px solid var(--hair)', borderRadius: 6,
+    background: 'var(--paper)', color: 'var(--ink)', outline: 'none',
+    fontFamily: 'var(--font-mono)', fontSize: 14,
+    boxSizing: 'border-box',
+  };
 
-      {/* Today / Pick a date */}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={() => setMode('today')} className="tap" style={segStyle(mode === 'today')}>Today</button>
-        <button onClick={() => setMode('pick')} className="tap" style={segStyle(mode === 'pick')}>Pick a date</button>
+  // Shared exercise-list preview renderer used by both single and range modes
+  function GroupPreview({ groups }) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {groups.map(g => (
+          <div key={g.day.id}>
+            <div style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+              textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700,
+              marginBottom: 10,
+            }}>Day {g.day.id} · {g.day.name}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {g.items.map(({ ex, session }, i) => (
+                <div key={i}>
+                  <div style={{
+                    fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 600,
+                    color: 'var(--ink)', letterSpacing: '-0.01em',
+                  }}>{ex.name}</div>
+                  <div className=”num” style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.5 }}>
+                    {session.sets.map((st, j) => (
+                      <span key={j}>
+                        {st.reps}<span style={{ color: 'var(--muted-2)' }}>×</span>{fmt(st.weight)}
+                        {j < session.sets.length - 1 && <span style={{ color: 'var(--muted-2)', margin: '0 6px' }}>·</span>}
+                      </span>
+                    ))}
+                    {ex.unit && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 6 }}>{ex.unit}</span>}
+                  </div>
+                  {session.note && (
+                    <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+                      “{session.note}”
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <Sheet onClose={onClose} title=”Export” titleStyle={{ fontSize: 24, overflow: 'visible', textOverflow: 'clip', flexShrink: 0 }}>
+
+      {/* Mode tabs: Today / Pick a date / Date range */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <button onClick={() => setMode('today')} className=”tap” style={segStyle(mode === 'today')}>Today</button>
+        <button onClick={() => setMode('pick')}  className=”tap” style={segStyle(mode === 'pick')}>Pick date</button>
+        <button onClick={() => setMode('range')} className=”tap” style={segStyle(mode === 'range')}>Range</button>
       </div>
 
+      {/* ── Single-date pick ── */}
       {mode === 'pick' && (
-        <div className="reveal" style={{ marginTop: 12 }}>
+        <div className=”reveal” style={{ marginBottom: 4 }}>
           <input
-            type="date"
+            type=”date”
             value={picked}
             max={todayKey}
             onChange={e => { if (e.target.value) setPicked(e.target.value); }}
-            className="num"
-            style={{
-              width: '100%', height: 48, padding: '0 14px',
-              border: '1px solid var(--hair)', borderRadius: 6,
-              background: 'var(--paper)', color: 'var(--ink)', outline: 'none',
-            }}
+            className=”num”
+            style={dateInputStyle}
           />
         </div>
       )}
 
-      {/* Selected-date heading */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '20px 0 14px' }}>
-        <span style={{
-          fontFamily: 'var(--font-sans)', fontSize: 17, fontWeight: 700,
-          color: 'var(--ink)', letterSpacing: '-0.01em',
-          whiteSpace: 'nowrap', flexShrink: 0,
-        }}>{prettyDateFromKey(dateKey)}</span>
-        <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
-        {hasData && (
-          <span style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
-            letterSpacing: '0.08em', textTransform: 'uppercase',
-          }}>{totalLogged} logged</span>
-        )}
-      </div>
+      {/* ── Range picker ── */}
+      {mode === 'range' && (
+        <div className=”reveal”>
+          {/* Preset shortcuts */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            {[
+              { label: 'This week', start: thisWeekMonday, end: todayKey },
+              { label: 'Last 7 days', start: sevenDaysAgo, end: todayKey },
+            ].map(p => {
+              const active = rangeStart === p.start && rangeEnd === p.end;
+              return (
+                <button
+                  key={p.label}
+                  onClick={() => { setRangeStart(p.start); setRangeEnd(p.end); }}
+                  className=”tap”
+                  style={{
+                    height: 34, padding: '0 14px', borderRadius: 6,
+                    fontFamily: 'var(--font-mono)', fontSize: 10,
+                    letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600,
+                    background: active ? 'var(--accent-tint)' : 'transparent',
+                    color: active ? 'var(--accent)' : 'var(--ink-2)',
+                    border: active ? '1px solid var(--accent)' : '1px solid var(--hair)',
+                  }}
+                >{p.label}</button>
+              );
+            })}
+          </div>
 
-      {/* Preview / empty state */}
-      {hasData ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {groups.map(g => (
-            <div key={g.day.id}>
-              <div style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
-                textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700,
-                marginBottom: 10,
-              }}>Day {g.day.id} · {g.day.name}</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {g.items.map(({ ex, session }, i) => (
-                  <div key={i}>
-                    <div style={{
-                      fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 600,
-                      color: 'var(--ink)', letterSpacing: '-0.01em',
-                    }}>{ex.name}</div>
-                    <div className="num" style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.5 }}>
-                      {session.sets.map((st, j) => (
-                        <span key={j}>
-                          {st.reps}<span style={{ color: 'var(--muted-2)' }}>×</span>{fmt(st.weight)}
-                          {j < session.sets.length - 1 && <span style={{ color: 'var(--muted-2)', margin: '0 6px' }}>·</span>}
-                        </span>
-                      ))}
-                      {ex.unit && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 6 }}>{ex.unit}</span>}
-                    </div>
-                    {session.note && (
-                      <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
-                        “{session.note}”
-                      </div>
-                    )}
-                  </div>
-                ))}
+          {/* Start / End date inputs */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                textTransform: 'uppercase', color: 'var(--muted)',
+              }}>Start</span>
+              <input
+                type=”date”
+                value={rangeStart}
+                max={rangeEnd}
+                onChange={e => { if (e.target.value) setRangeStart(e.target.value); }}
+                style={dateInputStyle}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                textTransform: 'uppercase', color: 'var(--muted)',
+              }}>End</span>
+              <input
+                type=”date”
+                value={rangeEnd}
+                min={rangeStart}
+                max={todayKey}
+                onChange={e => { if (e.target.value) setRangeEnd(e.target.value); }}
+                style={dateInputStyle}
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* ── Preview heading ── */}
+      {mode !== 'range' && (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '20px 0 14px' }}>
+          <span style={{
+            fontFamily: 'var(--font-sans)', fontSize: 17, fontWeight: 700,
+            color: 'var(--ink)', letterSpacing: '-0.01em',
+            whiteSpace: 'nowrap', flexShrink: 0,
+          }}>{prettyDateFromKey(dateKey)}</span>
+          <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
+          {hasData && (
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
+              letterSpacing: '0.08em', textTransform: 'uppercase',
+            }}>{totalLogged} logged</span>
+          )}
+        </div>
+      )}
+
+      {mode === 'range' && (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '20px 0 14px' }}>
+          <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
+          {hasData && (
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
+              letterSpacing: '0.08em', textTransform: 'uppercase',
+            }}>{(rangeEmail.allDayGroups || []).length} days · {totalLogged} logged</span>
+          )}
+        </div>
+      )}
+
+      {/* ── Preview body ── */}
+      {mode !== 'range' && (
+        hasData ? (
+          <GroupPreview groups={singleEmail.groups} />
+        ) : (
+          <div style={{
+            padding: '22px 16px', borderRadius: 8,
+            border: '1px dashed var(--rule-thick)',
+            textAlign: 'center', fontSize: 13.5, color: 'var(--muted)', fontWeight: 500,
+          }}>
+            No sessions logged for this date.
+          </div>
+        )
+      )}
+
+      {mode === 'range' && (
+        hasData ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
+            {(rangeEmail.allDayGroups || []).map(({ dateKey: dk, pretty, groups }) => (
+              <div key={dk}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14,
+                }}>
+                  <span style={{
+                    fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 700,
+                    color: 'var(--ink)', letterSpacing: '-0.01em', whiteSpace: 'nowrap',
+                  }}>{pretty}</span>
+                  <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
+                  <span style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--accent)',
+                    letterSpacing: '0.10em', textTransform: 'uppercase', fontWeight: 700,
+                  }}>{groups.map(g => g.day.name).join(' · ')}</span>
+                </div>
+                <GroupPreview groups={groups} />
               </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div style={{
-          padding: '22px 16px', borderRadius: 8,
-          border: '1px dashed var(--rule-thick)',
-          textAlign: 'center', fontSize: 13.5, color: 'var(--muted)', fontWeight: 500,
-        }}>
-          No sessions logged for this date.
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{
+            padding: '22px 16px', borderRadius: 8,
+            border: '1px dashed var(--rule-thick)',
+            textAlign: 'center', fontSize: 13.5, color: 'var(--muted)', fontWeight: 500,
+          }}>
+            No sessions logged in this date range.
+          </div>
+        )
       )}
 
       {/* Actions */}
@@ -4001,7 +4215,7 @@ function ExportSheet({ store, onClose }) {
         <button
           onClick={copy}
           disabled={!hasData}
-          className="tap"
+          className=”tap”
           style={{
             flex: 1, height: 48, borderRadius: 6,
             border: '1px solid var(--hair)',
@@ -4013,13 +4227,12 @@ function ExportSheet({ store, onClose }) {
         >{copied ? '✓ Copied' : 'Copy'}</button>
         <a
           href={hasData ? mailHref : undefined}
-          className="tap"
+          className=”tap”
           aria-disabled={!hasData}
           onClick={e => {
             e.preventDefault();
             if (!hasData) return;
-            // Trigger the mailto navigation manually and pin scroll position —
-            // some browsers reset scroll to top on anchor-tag navigation/focus.
+            // Pin scroll position — some browsers reset to top on mailto navigation.
             const y = window.scrollY;
             window.location.href = mailHref;
             requestAnimationFrame(() => window.scrollTo(0, y));
