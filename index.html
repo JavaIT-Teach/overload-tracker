@@ -2805,6 +2805,34 @@ function writePresets(name, arr) {
   }
 }
 
+// ── "Done this visit" storage (sessionStorage, not the main store) ─────
+// doneIds is UI-only — it never affects logged session data — but it's kept
+// in sessionStorage rather than bare React state so it survives an
+// OS-triggered tab reload (e.g. iOS Safari discarding a backgrounded tab
+// under memory pressure), while still resetting on an actual tab/browser
+// close, matching the "New session" UX. Reads/writes are defensive: if
+// sessionStorage is unavailable (some private-browsing modes throw on
+// access) this silently falls back to in-memory-only behavior.
+const DONE_IDS_KEY = 'pol_done_ids';
+
+function readDoneIds() {
+  try {
+    const raw = sessionStorage.getItem(DONE_IDS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function writeDoneIds(idSet) {
+  try {
+    sessionStorage.setItem(DONE_IDS_KEY, JSON.stringify([...idSet]));
+  } catch (e) {
+    // sessionStorage unavailable — doneIds stays in-memory-only for this visit.
+  }
+}
+
 // ── Root app ─────────────────────────────────────────────────
 function App() {
   const [store, setStore] = useState(() => {
@@ -2824,10 +2852,21 @@ function App() {
   // Bumped on every preset write so the list re-reads from localStorage.
   const [presetsTick, setPresetsTick] = useState(0);
 
-  // "Done" indicator — UI-only, in-memory marker for exercises logged this
-  // visit. Never persisted (not localStorage, not the store) and never
-  // affects logged session data; resets on day switch or page reload.
-  const [doneIds, setDoneIds] = useState(() => new Set());
+  // "Done" indicator — UI-only marker for exercises logged this visit. Never
+  // affects logged session data (that's in store.sessions). Backed by
+  // sessionStorage (see readDoneIds/writeDoneIds above) rather than bare
+  // React state so it survives a silent OS-triggered tab reload; still
+  // resets on day switch, the "New session" button, or an actual tab close.
+  const [doneIds, setDoneIds] = useState(() => readDoneIds());
+
+  // Apply an update to doneIds and mirror it to sessionStorage in lockstep.
+  const updateDoneIds = (next) => {
+    setDoneIds(prev => {
+      const resolved = typeof next === 'function' ? next(prev) : next;
+      writeDoneIds(resolved);
+      return resolved;
+    });
+  };
 
   // Auto-hide header on scroll-down, reveal on scroll-up.
   // Direction-based: compares current window.scrollY to previous on every event.
@@ -2879,11 +2918,19 @@ function App() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Reset to top when switching days
+  // Reset to top when switching days. Effects run after the initial mount
+  // too (not just on subsequent [activeDay] changes) — skip the doneIds
+  // clear on that first run, or a sessionStorage-seeded doneIds (surviving
+  // an OS-triggered tab reload) would get wiped immediately after loading.
+  const isInitialDayRender = useRef(true);
   useEffect(() => {
     setTopBarHidden(false);
     window.scrollTo(0, 0);
-    setDoneIds(new Set());
+    if (isInitialDayRender.current) {
+      isInitialDayRender.current = false;
+      return;
+    }
+    updateDoneIds(new Set());
   }, [activeDay]);
 
   // Persist on every change
@@ -2916,10 +2963,10 @@ function App() {
         [exId]: [...(s.sessions[exId] || []), entry],
       },
     }));
-    setDoneIds(prev => new Set(prev).add(exId));
+    updateDoneIds(prev => new Set(prev).add(exId));
   };
 
-  const clearDoneIds = () => setDoneIds(new Set());
+  const clearDoneIds = () => updateDoneIds(new Set());
 
   // Stamp a progression marker on the most recent session of an exercise.
   function stampProgression(sessions, exId, marker) {
