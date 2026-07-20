@@ -2622,6 +2622,7 @@ function loadStore() {
     if (!parsed.sessions) parsed.sessions = {};
     if (!parsed.notes) parsed.notes = {};
     if (!parsed.archive) parsed.archive = [];
+    if (!Array.isArray(parsed.removedExerciseIds)) parsed.removedExerciseIds = [];
     // Intentionally NO version-based wipe here. Stored sessions are kept
     // as-is; reconcileStore() brings in any new seed definitions/history.
     return parsed;
@@ -2633,18 +2634,24 @@ function loadStore() {
 
 // Ensure every seed day/exercise exists in the store WITHOUT touching any
 // exercise that's already there (so user-progressed targets are preserved).
+// Exercises the user has deliberately removed (tracked in
+// store.removedExerciseIds) are never re-added by this pass.
 function reconcileDays(store) {
   const seedDays = (typeof SEED_STORE !== 'undefined' && SEED_STORE.days) ? SEED_STORE.days : null;
   if (!seedDays) return store;
+  const removedIds = new Set(store.removedExerciseIds || []);
   const byId = new Map((store.days || []).map(d => [d.id, d]));
   seedDays.forEach(sd => {
     const existing = byId.get(sd.id);
     if (!existing) {
-      store.days.push(JSON.parse(JSON.stringify(sd)));
+      const freshDay = JSON.parse(JSON.stringify(sd));
+      freshDay.exercises = freshDay.exercises.filter(e => !removedIds.has(e.id));
+      store.days.push(freshDay);
       return;
     }
     const haveIds = new Set(existing.exercises.map(e => e.id));
     sd.exercises.forEach(se => {
+      if (removedIds.has(se.id)) return; // deliberately removed — don't resurrect
       if (!haveIds.has(se.id)) existing.exercises.push(JSON.parse(JSON.stringify(se)));
     });
   });
@@ -2762,6 +2769,7 @@ function freshStore() {
     notes: {},
     archive: [],
   };
+  if (!Array.isArray(base.removedExerciseIds)) base.removedExerciseIds = [];
   // Seed the hardcoded session history onto the fresh routine.
   return reconcileStore(base);
 }
@@ -2797,6 +2805,34 @@ function writePresets(name, arr) {
   }
 }
 
+// ── "Done this visit" storage (sessionStorage, not the main store) ─────
+// doneIds is UI-only — it never affects logged session data — but it's kept
+// in sessionStorage rather than bare React state so it survives an
+// OS-triggered tab reload (e.g. iOS Safari discarding a backgrounded tab
+// under memory pressure), while still resetting on an actual tab/browser
+// close, matching the "New session" UX. Reads/writes are defensive: if
+// sessionStorage is unavailable (some private-browsing modes throw on
+// access) this silently falls back to in-memory-only behavior.
+const DONE_IDS_KEY = 'pol_done_ids';
+
+function readDoneIds() {
+  try {
+    const raw = sessionStorage.getItem(DONE_IDS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function writeDoneIds(idSet) {
+  try {
+    sessionStorage.setItem(DONE_IDS_KEY, JSON.stringify([...idSet]));
+  } catch (e) {
+    // sessionStorage unavailable — doneIds stays in-memory-only for this visit.
+  }
+}
+
 // ── Root app ─────────────────────────────────────────────────
 function App() {
   const [store, setStore] = useState(() => {
@@ -2816,10 +2852,21 @@ function App() {
   // Bumped on every preset write so the list re-reads from localStorage.
   const [presetsTick, setPresetsTick] = useState(0);
 
-  // "Done" indicator — UI-only, in-memory marker for exercises logged this
-  // visit. Never persisted (not localStorage, not the store) and never
-  // affects logged session data; resets on day switch or page reload.
-  const [doneIds, setDoneIds] = useState(() => new Set());
+  // "Done" indicator — UI-only marker for exercises logged this visit. Never
+  // affects logged session data (that's in store.sessions). Backed by
+  // sessionStorage (see readDoneIds/writeDoneIds above) rather than bare
+  // React state so it survives a silent OS-triggered tab reload; still
+  // resets on day switch, the "New session" button, or an actual tab close.
+  const [doneIds, setDoneIds] = useState(() => readDoneIds());
+
+  // Apply an update to doneIds and mirror it to sessionStorage in lockstep.
+  const updateDoneIds = (next) => {
+    setDoneIds(prev => {
+      const resolved = typeof next === 'function' ? next(prev) : next;
+      writeDoneIds(resolved);
+      return resolved;
+    });
+  };
 
   // Auto-hide header on scroll-down, reveal on scroll-up.
   // Direction-based: compares current window.scrollY to previous on every event.
@@ -2871,11 +2918,19 @@ function App() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Reset to top when switching days
+  // Reset to top when switching days. Effects run after the initial mount
+  // too (not just on subsequent [activeDay] changes) — skip the doneIds
+  // clear on that first run, or a sessionStorage-seeded doneIds (surviving
+  // an OS-triggered tab reload) would get wiped immediately after loading.
+  const isInitialDayRender = useRef(true);
   useEffect(() => {
     setTopBarHidden(false);
     window.scrollTo(0, 0);
-    setDoneIds(new Set());
+    if (isInitialDayRender.current) {
+      isInitialDayRender.current = false;
+      return;
+    }
+    updateDoneIds(new Set());
   }, [activeDay]);
 
   // Persist on every change
@@ -2908,10 +2963,10 @@ function App() {
         [exId]: [...(s.sessions[exId] || []), entry],
       },
     }));
-    setDoneIds(prev => new Set(prev).add(exId));
+    updateDoneIds(prev => new Set(prev).add(exId));
   };
 
-  const clearDoneIds = () => setDoneIds(new Set());
+  const clearDoneIds = () => updateDoneIds(new Set());
 
   // Stamp a progression marker on the most recent session of an exercise.
   function stampProgression(sessions, exId, marker) {
@@ -3065,11 +3120,21 @@ function App() {
       exercises: d.exercises.map(e => e.id === exId ? { ...e, ...patch } : e),
     })));
   };
+  // Removing an exercise drops it from its day AND records the id in
+  // removedExerciseIds so reconcileDays never re-adds it on a future load.
+  // Session/note history for the removed id is left in place (orphaned, not
+  // deleted) — matches the "History will be preserved" confirm copy below.
   const removeEx = (exId) => {
-    updateDays(days => days.map(d => ({
-      ...d,
-      exercises: d.exercises.filter(e => e.id !== exId),
-    })));
+    setStore(s => ({
+      ...s,
+      days: s.days.map(d => ({
+        ...d,
+        exercises: d.exercises.filter(e => e.id !== exId),
+      })),
+      removedExerciseIds: s.removedExerciseIds.includes(exId)
+        ? s.removedExerciseIds
+        : [...s.removedExerciseIds, exId],
+    }));
   };
   const addEx = (dayId) => {
     const blank = {
@@ -3090,7 +3155,8 @@ function App() {
     } : d));
   };
 
-  // DRAG-TO-REORDER — splice the exercises array for a day into a new order.
+  // REORDER — splice the exercises array for a day into a new order (used by
+  // the up/down arrow buttons to swap an exercise with its neighbor).
   // The store saves on every mutation, so the new order persists across reloads.
   const moveExercise = (dayIndex, fromIndex, toIndex) => {
     if (fromIndex === toIndex) return;
@@ -3628,80 +3694,6 @@ function ExportLauncherButton({ onOpen }) {
 function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImport, onReset, onTogglePlateau }) {
   const exercises = day.exercises;
   const GAP = 24;
-  const [drag, setDrag] = React.useState(null); // { from, to, dy } | null
-  const dragRef = React.useRef(null);
-  const startY = React.useRef(0);
-  const metrics = React.useRef(null);          // { mids:[], heights:[] }
-  const cardRefs = React.useRef([]);
-  cardRefs.current.length = exercises.length;
-
-  // Pointer/touch drag (HTML5 DnD is unreliable on iOS). The handle starts a
-  // drag; the dragged card follows the finger via transform while the others
-  // shift to reveal the slot; the drop index is found by comparing midpoints.
-  const beginDrag = (index, e) => {
-    if (dragRef.current) return; // ignore the second of pointerdown+touchstart
-    const y = (e.clientY != null) ? e.clientY
-      : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
-    const rects = cardRefs.current.map(n => n ? n.getBoundingClientRect() : { top: 0, height: 0 });
-    metrics.current = {
-      mids: rects.map(r => r.top + r.height / 2),
-      heights: rects.map(r => r.height),
-    };
-    startY.current = y;
-    dragRef.current = { from: index, to: index, dy: 0 };
-    setDrag(dragRef.current);
-    if (e.pointerId != null && e.currentTarget.setPointerCapture) {
-      try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
-    }
-  };
-
-  const dragging = drag !== null;
-
-  React.useEffect(() => {
-    if (!dragging) return;
-    const getY = (e) => {
-      if (e.clientY != null) return e.clientY;
-      if (e.touches && e.touches[0]) return e.touches[0].clientY;
-      if (e.changedTouches && e.changedTouches[0]) return e.changedTouches[0].clientY;
-      return 0;
-    };
-    const onMoveEvt = (e) => {
-      if (!dragRef.current || !metrics.current) return;
-      if (e.cancelable) e.preventDefault(); // block page scroll mid-drag (iOS)
-      const dy = getY(e) - startY.current;
-      const mids = metrics.current.mids;
-      const from = dragRef.current.from;
-      const draggedMid = mids[from] + dy;
-      let to = from;
-      if (dy < 0) {
-        for (let i = from - 1; i >= 0; i--) { if (draggedMid < mids[i]) to = i; else break; }
-      } else {
-        for (let i = from + 1; i < mids.length; i++) { if (draggedMid > mids[i]) to = i; else break; }
-      }
-      dragRef.current = { from, to, dy };
-      setDrag({ from, to, dy });
-    };
-    const onUpEvt = () => {
-      const d = dragRef.current;
-      dragRef.current = null;
-      setDrag(null);
-      if (d && d.from !== d.to) onMove(dayIndex, d.from, d.to);
-    };
-    window.addEventListener('pointermove', onMoveEvt, { passive: false });
-    window.addEventListener('pointerup', onUpEvt);
-    window.addEventListener('pointercancel', onUpEvt);
-    window.addEventListener('touchmove', onMoveEvt, { passive: false });
-    window.addEventListener('touchend', onUpEvt);
-    window.addEventListener('touchcancel', onUpEvt);
-    return () => {
-      window.removeEventListener('pointermove', onMoveEvt);
-      window.removeEventListener('pointerup', onUpEvt);
-      window.removeEventListener('pointercancel', onUpEvt);
-      window.removeEventListener('touchmove', onMoveEvt);
-      window.removeEventListener('touchend', onUpEvt);
-      window.removeEventListener('touchcancel', onUpEvt);
-    };
-  }, [dragging, dayIndex, onMove]);
 
   return (
     <div style={{ padding: '22px 22px 40px' }}>
@@ -3721,47 +3713,19 @@ function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImpo
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, marginTop: 20 }}>
-        {exercises.map((ex, i) => {
-          const isDragged = drag != null && drag.from === i;
-          let translateY = 0;
-          let transition = 'transform 180ms cubic-bezier(.2,.7,.3,1)';
-          if (drag != null) {
-            if (isDragged) {
-              translateY = drag.dy;
-              transition = 'none';
-            } else {
-              const lift = ((metrics.current && metrics.current.heights[drag.from]) || 0) + GAP;
-              if (drag.from < drag.to && i > drag.from && i <= drag.to) translateY = -lift;
-              else if (drag.from > drag.to && i < drag.from && i >= drag.to) translateY = lift;
-            }
-          }
-          return (
-            <div
-              key={ex.id}
-              ref={el => { cardRefs.current[i] = el; }}
-              style={{
-                position: 'relative',
-                transform: `translateY(${translateY}px)`,
-                transition,
-                zIndex: isDragged ? 20 : 1,
-                boxShadow: isDragged ? '0 14px 30px rgba(15,15,16,0.18)' : 'none',
-                borderRadius: isDragged ? 10 : 0,
-                background: isDragged ? 'var(--paper)' : 'transparent',
-                touchAction: dragging ? 'none' : 'auto',
-              }}
-            >
-              <EditRow
-                ex={ex}
-                index={i}
-                onHandleDown={beginDrag}
-                dragging={isDragged}
-                onUpdate={onUpdate}
-                onRemove={onRemove}
-                onTogglePlateau={onTogglePlateau}
-              />
-            </div>
-          );
-        })}
+        {exercises.map((ex, i) => (
+          <EditRow
+            key={ex.id}
+            ex={ex}
+            isFirst={i === 0}
+            isLast={i === exercises.length - 1}
+            onMoveUp={() => onMove(dayIndex, i, i - 1)}
+            onMoveDown={() => onMove(dayIndex, i, i + 1)}
+            onUpdate={onUpdate}
+            onRemove={onRemove}
+            onTogglePlateau={onTogglePlateau}
+          />
+        ))}
       </div>
 
       <button onClick={onAdd} className="tap" style={{
@@ -3783,29 +3747,50 @@ function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImpo
   );
 }
 
-function EditRow({ ex, index, onHandleDown, dragging, onUpdate, onRemove, onTogglePlateau }) {
+function EditRow({ ex, isFirst, isLast, onMoveUp, onMoveDown, onUpdate, onRemove, onTogglePlateau }) {
   return (
     <div style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
-      <button
-        type="button"
-        aria-label="Drag to reorder"
-        onPointerDown={e => onHandleDown(index, e)}
-        onTouchStart={e => onHandleDown(index, e)}
-        className="tap"
-        style={{
-          flexShrink: 0, width: 34, alignSelf: 'stretch',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'grab', touchAction: 'none',
-          background: 'transparent', border: 'none',
-          color: dragging ? 'var(--accent)' : 'var(--muted-2)',
-        }}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <line x1="3" y1="5" x2="13" y2="5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          <line x1="3" y1="8" x2="13" y2="8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          <line x1="3" y1="11" x2="13" y2="11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-      </button>
+      <div style={{
+        flexShrink: 0, width: 34, alignSelf: 'stretch',
+        display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
+      }}>
+        <button
+          type="button"
+          aria-label="Move exercise up"
+          onClick={onMoveUp}
+          disabled={isFirst}
+          className="tap"
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'transparent', border: 'none',
+            color: isFirst ? 'var(--muted-2)' : 'var(--accent)',
+            opacity: isFirst ? 0.3 : 1,
+            cursor: isFirst ? 'default' : 'pointer',
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 10L8 6L12 10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          aria-label="Move exercise down"
+          onClick={onMoveDown}
+          disabled={isLast}
+          className="tap"
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'transparent', border: 'none',
+            color: isLast ? 'var(--muted-2)' : 'var(--accent)',
+            opacity: isLast ? 0.3 : 1,
+            cursor: isLast ? 'default' : 'pointer',
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
       <div style={{
         flex: 1, minWidth: 0,
         padding: '16px 18px',
