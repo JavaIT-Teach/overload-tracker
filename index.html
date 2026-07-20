@@ -2622,6 +2622,7 @@ function loadStore() {
     if (!parsed.sessions) parsed.sessions = {};
     if (!parsed.notes) parsed.notes = {};
     if (!parsed.archive) parsed.archive = [];
+    if (!Array.isArray(parsed.removedExerciseIds)) parsed.removedExerciseIds = [];
     // Intentionally NO version-based wipe here. Stored sessions are kept
     // as-is; reconcileStore() brings in any new seed definitions/history.
     return parsed;
@@ -2633,18 +2634,24 @@ function loadStore() {
 
 // Ensure every seed day/exercise exists in the store WITHOUT touching any
 // exercise that's already there (so user-progressed targets are preserved).
+// Exercises the user has deliberately removed (tracked in
+// store.removedExerciseIds) are never re-added by this pass.
 function reconcileDays(store) {
   const seedDays = (typeof SEED_STORE !== 'undefined' && SEED_STORE.days) ? SEED_STORE.days : null;
   if (!seedDays) return store;
+  const removedIds = new Set(store.removedExerciseIds || []);
   const byId = new Map((store.days || []).map(d => [d.id, d]));
   seedDays.forEach(sd => {
     const existing = byId.get(sd.id);
     if (!existing) {
-      store.days.push(JSON.parse(JSON.stringify(sd)));
+      const freshDay = JSON.parse(JSON.stringify(sd));
+      freshDay.exercises = freshDay.exercises.filter(e => !removedIds.has(e.id));
+      store.days.push(freshDay);
       return;
     }
     const haveIds = new Set(existing.exercises.map(e => e.id));
     sd.exercises.forEach(se => {
+      if (removedIds.has(se.id)) return; // deliberately removed — don't resurrect
       if (!haveIds.has(se.id)) existing.exercises.push(JSON.parse(JSON.stringify(se)));
     });
   });
@@ -2762,6 +2769,7 @@ function freshStore() {
     notes: {},
     archive: [],
   };
+  if (!Array.isArray(base.removedExerciseIds)) base.removedExerciseIds = [];
   // Seed the hardcoded session history onto the fresh routine.
   return reconcileStore(base);
 }
@@ -3065,11 +3073,21 @@ function App() {
       exercises: d.exercises.map(e => e.id === exId ? { ...e, ...patch } : e),
     })));
   };
+  // Removing an exercise drops it from its day AND records the id in
+  // removedExerciseIds so reconcileDays never re-adds it on a future load.
+  // Session/note history for the removed id is left in place (orphaned, not
+  // deleted) — matches the "History will be preserved" confirm copy below.
   const removeEx = (exId) => {
-    updateDays(days => days.map(d => ({
-      ...d,
-      exercises: d.exercises.filter(e => e.id !== exId),
-    })));
+    setStore(s => ({
+      ...s,
+      days: s.days.map(d => ({
+        ...d,
+        exercises: d.exercises.filter(e => e.id !== exId),
+      })),
+      removedExerciseIds: s.removedExerciseIds.includes(exId)
+        ? s.removedExerciseIds
+        : [...s.removedExerciseIds, exId],
+    }));
   };
   const addEx = (dayId) => {
     const blank = {
