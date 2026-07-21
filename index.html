@@ -1425,6 +1425,8 @@ function LoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustomWeigh
   // True while a text field is focused. Gates BOTH the auto-advance and the
   // Save action so nothing fires mid-typing in the custom-weight field.
   const [typing, setTyping] = useState(false);
+  // Session note draft — one-off, saved onto THIS session only (see onDone).
+  const [sessionNote, setSessionNote] = useState('');
 
   const updateSet = (i, patch) => {
     setSets(prev => prev.map((s, idx) => idx === i ? { ...s, ...patch } : s));
@@ -1511,6 +1513,29 @@ function LoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustomWeigh
         })}
       </div>
 
+      {/* Session note — one-off, tied to THIS logged session/date only. Kept
+          visually and verbally distinct from the exercise's standing note
+          (added separately from the card, see ExerciseNote) so the user
+          never has to guess which one they're writing. */}
+      <div style={{ marginTop: 18 }}>
+        <div style={{
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+          textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6,
+        }}>Note for today's session (optional)</div>
+        <textarea
+          value={sessionNote}
+          onChange={e => setSessionNote(e.target.value)}
+          placeholder="One-off — this date only, not carried to future sessions…"
+          rows={2}
+          style={{
+            width: '100%', padding: 12,
+            border: '1px solid var(--hair)', borderRadius: 6,
+            background: 'var(--paper)', fontSize: 13.5, color: 'var(--ink)',
+            outline: 'none', lineHeight: 1.5,
+          }}
+        />
+      </div>
+
       <div style={{ display: 'flex', gap: 10, paddingTop: 24 }}>
         <button onClick={onCancel} className="tap" style={{
           flex: 1, height: 48, borderRadius: 6,
@@ -1520,7 +1545,7 @@ function LoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustomWeigh
           Cancel
         </button>
         <button
-          onClick={() => { if (typing) return; if (allLogged) onDone(sets); }}
+          onClick={() => { if (typing) return; if (allLogged) onDone(sets, sessionNote.trim()); }}
           disabled={!allLogged}
           className="tap" style={{
           flex: 2, height: 48, borderRadius: 6,
@@ -1912,7 +1937,7 @@ function ExerciseNote({ note, onSave, onDelete }) {
           color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 600,
         }}
       >
-        + Add note
+        + Add standing note
       </button>
     );
   }
@@ -1925,11 +1950,17 @@ function ExerciseNote({ note, onSave, onDelete }) {
         borderRadius: 'var(--card-radius)',
         display: 'flex', gap: 12, alignItems: 'flex-start',
       }}>
-        <div style={{
-          flex: 1, fontSize: 13.5, color: 'var(--ink-2)',
-          lineHeight: 1.55, whiteSpace: 'pre-wrap',
-        }}>
-          {note.text}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+            textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6, fontWeight: 700,
+          }}>Standing note · every session</div>
+          <div style={{
+            fontSize: 13.5, color: 'var(--ink-2)',
+            lineHeight: 1.55, whiteSpace: 'pre-wrap',
+          }}>
+            {note.text}
+          </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
           <button
@@ -1943,13 +1974,14 @@ function ExerciseNote({ note, onSave, onDelete }) {
           >Edit</button>
           <button
             onClick={onDelete}
+            aria-label="Dismiss standing note"
             className="tap"
             style={{
               padding: '4px 8px', minHeight: 28,
               fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
               color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 600,
             }}
-          >Delete</button>
+          >✕ Dismiss</button>
         </div>
       </div>
     );
@@ -1958,10 +1990,14 @@ function ExerciseNote({ note, onSave, onDelete }) {
   // editing
   return (
     <div className="reveal" style={{ marginTop: 14 }}>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+        textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6, fontWeight: 700,
+      }}>Standing note</div>
       <textarea
         value={draft}
         onChange={e => { setDraft(e.target.value); setJustSaved(false); }}
-        placeholder="Form cues, tweaks, things to remember next session…"
+        placeholder="Persists on this exercise every session until dismissed — form cues, reminders…"
         rows={3}
         autoFocus
         style={{
@@ -2011,6 +2047,7 @@ function ExerciseNote({ note, onSave, onDelete }) {
         {hasNote && (
           <button
             onClick={() => { onDelete(); setEditing(false); setDraft(''); }}
+            aria-label="Dismiss standing note"
             className="tap"
             style={{
               padding: '0 10px', height: 36,
@@ -2018,7 +2055,7 @@ function ExerciseNote({ note, onSave, onDelete }) {
               color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 600,
             }}
           >
-            Delete
+            ✕ Dismiss
           </button>
         )}
       </div>
@@ -2032,7 +2069,7 @@ function ExerciseNote({ note, onSave, onDelete }) {
 // the actual three-state logic lives in nextSessionVerdict() (progression.js).
 // Returns true if the session's verdict raises the weight range, so the
 // caller can confirm with the user before applying it.
-function commitSession(ex, sets, { onLog, onAddCustomWeight }) {
+function commitSession(ex, sets, note, { onLog, onAddCustomWeight }) {
   if (onAddCustomWeight) {
     sets.forEach(s => {
       if (s.weight != null && s.weight > 0) onAddCustomWeight(ex.id, s.weight);
@@ -2043,7 +2080,7 @@ function commitSession(ex, sets, { onLog, onAddCustomWeight }) {
     perSet: sets.map(s => nextSessionVerdict(ex, s)),
     status: deriveStatus(ex),
   };
-  onLog(ex.id, { sets, summary: snapshot }, deriveStatus(ex));
+  onLog(ex.id, { sets, note, summary: snapshot }, deriveStatus(ex));
   return sessionRaisesRange(ex, sets);
 }
 
@@ -2490,8 +2527,8 @@ function LiveExerciseView({
     return summarize(ex, history);
   }, [ex, history, justLogged]);
 
-  const handleDone = (sets) => {
-    const raisesRange = commitSession(ex, sets, { onLog, onAddCustomWeight });
+  const handleDone = (sets, note) => {
+    const raisesRange = commitSession(ex, sets, note, { onLog, onAddCustomWeight });
     setJustLogged(sets);
     if (raisesRange) {
       const step = incrementFor(ex);
@@ -3717,6 +3754,8 @@ function sessionsForDate(store, dateKey) {
 // Build the mailto payload for one date.
 //   Subject: "Training Log — <date>"
 //   Body:    every exercise logged that day, each set as reps×weight, + notes.
+// Standing notes (store.notes[exId]) are inline too, once per exercise (the
+// first time it appears — see buildRangeEmail for why).
 function buildDateEmail(store, dateKey) {
   const pretty = prettyDateFromKey(dateKey);
   const subject = `Training Log — ${pretty}`;
@@ -3725,6 +3764,7 @@ function buildDateEmail(store, dateKey) {
     return { to: EMAIL_TO, subject, body: `No sessions logged for ${pretty}.`, hasData: false, groups };
   }
   const lines = [`Training Log — ${pretty}`, ''];
+  const standingNoteShown = new Set();
   for (const g of groups) {
     lines.push(`Day ${g.day.id} · ${g.day.name}`);
     for (const { ex, session } of g.items) {
@@ -3735,6 +3775,11 @@ function buildDateEmail(store, dateKey) {
           : `${st.reps}×${fmt(st.weight)}${ex.unit ? ' ' + ex.unit : ''}`
       )).join(', ');
       lines.push(`  ${setStr}`);
+      const standing = store.notes && store.notes[ex.id];
+      if (standing && standing.text && !standingNoteShown.has(ex.id)) {
+        lines.push(`  Standing note: "${standing.text}"`);
+        standingNoteShown.add(ex.id);
+      }
       if (session.note) lines.push(`  Note: "${session.note}"`);
     }
     lines.push('');
@@ -3745,6 +3790,10 @@ function buildDateEmail(store, dateKey) {
 // Build the mailto payload for a date range (startKey..endKey inclusive).
 // Days with no logged sessions are skipped silently. If only one date has
 // data, the subject and body degrade to the same format as buildDateEmail.
+// Standing notes (store.notes[exId]) are inline too — printed once per
+// exercise, the FIRST time it appears in the range (earliest date), not on
+// every later occurrence, to keep a multi-week export from repeating the
+// same standing note on every session of that exercise.
 function buildRangeEmail(store, startKey, endKey) {
   // Walk every calendar day in the range.
   const allDayGroups = []; // [{ dateKey, pretty, groups }]
@@ -3767,6 +3816,7 @@ function buildRangeEmail(store, startKey, endKey) {
     : `Training Log — ${allDayGroups[0].pretty}–${allDayGroups[allDayGroups.length - 1].pretty}`;
 
   const lines = [subject, ''];
+  const standingNoteShown = new Set();
   for (const { pretty, groups } of allDayGroups) {
     // Day names from each routine-day group logged that date.
     const dayNames = [...new Set(groups.map(g => g.day.name))].join(' · ');
@@ -3782,6 +3832,11 @@ function buildRangeEmail(store, startKey, endKey) {
             : `${st.reps}×${fmt(st.weight)}${ex.unit ? ' ' + ex.unit : ''}`
         )).join(', ');
         lines.push(`  ${setStr}`);
+        const standing = store.notes && store.notes[ex.id];
+        if (standing && standing.text && !standingNoteShown.has(ex.id)) {
+          lines.push(`  Standing note: "${standing.text}"`);
+          standingNoteShown.add(ex.id);
+        }
         if (session.note) lines.push(`  Note: "${session.note}"`);
       }
       lines.push('');
@@ -4099,7 +4154,12 @@ function ImportSheet({ currentJson, onImport, onClose }) {
 // Sessions are preserved indefinitely in localStorage. This sheet lets the
 // user pick any week that has logged sessions and export just that week.
 // If only one week of data exists, the picker is skipped automatically.
-function GroupPreview({ groups }) {
+// notes = store.notes (standing notes, keyed by exercise id). showStandingIds,
+// if given, restricts which exercises show their standing note in THIS block
+// (used by the range preview to show it only on the first date it appears —
+// see ExportSheet). Omit showStandingIds to always show when present (single
+// date / "today" preview, where there's only one occurrence anyway).
+function GroupPreview({ groups, notes, showStandingIds }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {groups.map(g => (
@@ -4110,28 +4170,38 @@ function GroupPreview({ groups }) {
             marginBottom: 10,
           }}>Day {g.day.id} · {g.day.name}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {g.items.map(({ ex, session }, i) => (
-              <div key={i}>
-                <div style={{
-                  fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 600,
-                  color: 'var(--ink)', letterSpacing: '-0.01em',
-                }}>{ex.name}</div>
-                <div className="num" style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.5 }}>
-                  {session.sets.map((st, j) => (
-                    <span key={j}>
-                      {st.reps}<span style={{ color: 'var(--muted-2)' }}>×</span>{fmt(st.weight)}
-                      {j < session.sets.length - 1 && <span style={{ color: 'var(--muted-2)', margin: '0 6px' }}>·</span>}
-                    </span>
-                  ))}
-                  {ex.unit && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 6 }}>{ex.unit}</span>}
-                </div>
-                {session.note && (
-                  <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
-                    "{session.note}"
+            {g.items.map(({ ex, session }, i) => {
+              const standing = notes && notes[ex.id];
+              const showStanding = !!(standing && standing.text
+                && (!showStandingIds || showStandingIds.has(ex.id)));
+              return (
+                <div key={i}>
+                  <div style={{
+                    fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 600,
+                    color: 'var(--ink)', letterSpacing: '-0.01em',
+                  }}>{ex.name}</div>
+                  <div className="num" style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.5 }}>
+                    {session.sets.map((st, j) => (
+                      <span key={j}>
+                        {st.reps}<span style={{ color: 'var(--muted-2)' }}>×</span>{fmt(st.weight)}
+                        {j < session.sets.length - 1 && <span style={{ color: 'var(--muted-2)', margin: '0 6px' }}>·</span>}
+                      </span>
+                    ))}
+                    {ex.unit && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 6 }}>{ex.unit}</span>}
                   </div>
-                )}
-              </div>
-            ))}
+                  {showStanding && (
+                    <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--accent)', lineHeight: 1.5 }}>
+                      Standing note: “{standing.text}”
+                    </div>
+                  )}
+                  {session.note && (
+                    <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+                      “{session.note}”
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       ))}
@@ -4202,6 +4272,29 @@ function ExportSheet({ store, onClose }) {
     }
     return (singleEmail.groups || []).reduce((n, g) => n + g.items.length, 0);
   }, [hasData, mode, singleEmail, rangeEmail]);
+
+  // Which (date, exercise) pairs should show the standing note in the range
+  // preview — only the FIRST date (earliest) that exercise appears on,
+  // mirroring buildRangeEmail's dedup so the on-screen preview matches the
+  // actual emailed/copied body exactly.
+  const rangeStandingByDate = useMemo(() => {
+    const map = {};
+    if (mode !== 'range' || !hasData) return map;
+    const shown = new Set();
+    for (const { dateKey: dk, groups } of (rangeEmail.allDayGroups || [])) {
+      const forDate = new Set();
+      for (const g of groups) {
+        for (const { ex } of g.items) {
+          if (!shown.has(ex.id) && store.notes && store.notes[ex.id] && store.notes[ex.id].text) {
+            forDate.add(ex.id);
+            shown.add(ex.id);
+          }
+        }
+      }
+      map[dk] = forDate;
+    }
+    return map;
+  }, [mode, hasData, rangeEmail, store.notes]);
 
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -4349,7 +4442,7 @@ function ExportSheet({ store, onClose }) {
       {/* ── Preview body ── */}
       {mode !== 'range' && (
         hasData ? (
-          <GroupPreview groups={singleEmail.groups} />
+          <GroupPreview groups={singleEmail.groups} notes={store.notes} />
         ) : (
           <div style={{
             padding: '22px 16px', borderRadius: 8,
@@ -4379,7 +4472,7 @@ function ExportSheet({ store, onClose }) {
                     letterSpacing: '0.10em', textTransform: 'uppercase', fontWeight: 700,
                   }}>{groups.map(g => g.day.name).join(' · ')}</span>
                 </div>
-                <GroupPreview groups={groups} />
+                <GroupPreview groups={groups} notes={store.notes} showStandingIds={rangeStandingByDate[dk]} />
               </div>
             ))}
           </div>
@@ -4716,7 +4809,7 @@ function HistoryDayEditor({ store, dateKey, onEditSets, onAddSession, onRemoveSe
                 marginBottom: 14,
               }}>Day {g.day.id} · {g.day.name}</div>
 
-              {g.items.map(({ ex }) => {
+              {g.items.map(({ ex, session }) => {
                 const sets = localSets[ex.id] || [];
                 const isDirty = dirty[ex.id];
                 const verdict = governingVerdict(ex, sets);
@@ -4750,6 +4843,17 @@ function HistoryDayEditor({ store, dateKey, onEditSets, onAddSession, onRemoveSe
                         }}
                       >Remove</button>
                     </div>
+
+                    {/* Session note for this date — display only, same as the
+                        inline per-card History view and the export preview. */}
+                    {session.note && (
+                      <div style={{
+                        marginTop: -4, marginBottom: 12, fontSize: 12.5,
+                        color: 'var(--ink-2)', lineHeight: 1.5,
+                      }}>
+                        “{session.note}”
+                      </div>
+                    )}
 
                     {/* Column labels */}
                     <div style={{
