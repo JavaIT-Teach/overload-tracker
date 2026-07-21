@@ -753,7 +753,7 @@ Object.assign(window, {
   // Form-focus / hold: progressionType 'reps' means hitting the rep ceiling
   // never auto-suggests a weight-range increase (manually clear via the
   // Edit-mode progression-type toggle when ready to resume normal loading).
-  add(1, 'Face Pull',                   { sets: 3, repMin: 15, repMax: 15, wMin: 60,  wMax: 60,  repCap: 15 },
+  add(1, 'Face Pull',                   { sets: 3, repMin: 15, repMax: 15, wMin: 44,  wMax: 44,  repCap: 15 },
     { progressionType: 'reps', notation: 'form-focus / hold' });
   add(1, 'Cable Straight-Arm Pulldown', { sets: 3, repMin: 12, repMax: 15, wMin: 53,  wMax: 53,  repCap: 15 },
     { progressionType: 'reps', notation: 'form-focus / hold' });
@@ -798,9 +798,9 @@ Object.assign(window, {
   add(3, 'Standing Calf Raise', { sets: 3, repMin: 15, repMax: 15, wMin: 130, wMax: 130, repCap: 15 });
   add(3, 'Dead Bug',            { sets: 3, repMin: 8,  repMax: 8,  wMin: 0,   wMax: 0,   repCap: 12 },
     { notation: 'per side · bodyweight', unit: '', progressionType: 'reps' });
-  add(3, 'Cable Woodchop',      { sets: 3, repMin: 13, repMax: 13, wMin: 38,  wMax: 45,  repCap: 15 },
+  add(3, 'Cable Woodchop',      { sets: 3, repMin: 13, repMax: 13, wMin: 38,  wMax: 38,  repCap: 15 },
     { notation: 'per side · form-focus / hold', progressionType: 'reps' });
-  add(3, "Farmer's Walk",       { sets: 3, repMin: 3,  repMax: 3,  wMin: 40,  wMax: 55,  repCap: 5 },
+  add(3, "Farmer's Walk",       { sets: 3, repMin: 3,  repMax: 3,  wMin: 60,  wMax: 65,  repCap: 5 },
     { notation: 'per hand', repUnit: 'laps', progressionType: 'reps' });
   // Retired — history preserved, hidden from active views. Not used to seed
   // Glute Bridge Machine or Bulgarian Split Squat's starting numbers.
@@ -2684,7 +2684,7 @@ const STORAGE_KEY = 'pol_tracker_v1';
 // hardcoded session history) is RECONCILED into whatever is stored: missing
 // exercises are added and missing seeded sessions are merged in by
 // exercise+date, but nothing you've logged is ever overwritten or removed.
-const SEED_VERSION = 5;
+const SEED_VERSION = 6;
 
 // ── Storage layer ─────────────────────────────────────────────
 function loadStore() {
