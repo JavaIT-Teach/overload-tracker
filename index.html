@@ -303,8 +303,17 @@ function fmt(n) {
 // Pretty target string ("8–10 × 140–160 lbs", "10 × 45 lbs", etc.)
 function targetString(ex) {
   const reps = ex.repMin === ex.repMax ? fmt(ex.repMin) : `${fmt(ex.repMin)}–${fmt(ex.repMax)}`;
+  // Calibration exercises (weighted, no starting number yet) show no
+  // pre-filled target — the first logged top set sets the baseline going
+  // forward (see logSession()). Bodyweight calibration exercises (e.g.
+  // Bulgarian Split Squat) have no weight to calibrate, so they fall
+  // through to the normal "bodyweight" display below.
+  const isBw = ex.unit === '' && ex.weightMin === 0 && ex.weightMax === 0;
+  if (ex.calibration && !isBw) {
+    return `${ex.sets} × ${reps} ${ex.repUnit || 'reps'} · calibration — log today's top set`;
+  }
   const w = ex.weightMin === ex.weightMax ? fmt(ex.weightMin) : `${fmt(ex.weightMin)}–${fmt(ex.weightMax)}`;
-  const wPart = (ex.unit === '' && ex.weightMin === 0) ? 'bodyweight' : `${w}${ex.unit ? ' ' + ex.unit : ''}`;
+  const wPart = isBw ? 'bodyweight' : `${w}${ex.unit ? ' ' + ex.unit : ''}`;
   return `${ex.sets} × ${reps} ${ex.repUnit || 'reps'} · ${wPart}`;
 }
 
@@ -580,6 +589,7 @@ function buildSummary(ex, sets, prev, prevPrev) {
 //  No other states exist.
 // ═══════════════════════════════════════════════════════════════
 const VERDICT = {
+  calibrate: { kind: 'hold',   text: 'Baseline set from today’s top set.' },
   repeat:   { kind: 'repeat',   text: 'Repeat weight next session.' },
   hold:     { kind: 'hold',     text: 'Logged \u2014 keep working within current range.' },
   increase: { kind: 'increase', text: 'Weight range increases.' },
@@ -590,6 +600,10 @@ const VERDICT = {
 function nextSessionVerdict(ex, set) {
   if (!ex || !set || set.reps == null || set.weight == null) return null;
   const reps = set.reps, weight = set.weight;
+  // Calibration: no real weight range to compare against yet — this log
+  // sets the baseline (see logSession()), so use a neutral verdict instead
+  // of the normal ceiling checks (weightMax is 0 until baseline is set).
+  if (ex.calibration) return VERDICT.calibrate;
   // 1 — below the rep floor: hold the load, repeat next session.
   if (reps < ex.repMin) return VERDICT.repeat;
   // Reps-type: weight increase is optional/user-driven; hitting the rep ceiling
@@ -681,17 +695,13 @@ Object.assign(window, {
 // progress is never tied to a code change. SEED_STORE.sessions starts empty;
 // mergeSeedHistory() fills it.
 //
-// Current date in app: June 10, 2026. Targets below reflect where each lift
-// sits after the June sessions.
+// Workout 5.0 (July 2026): reordered all four days and replaced several
+// exercise identities. Retired movements are kept below with archived: true
+// (definition + history preserved, hidden from active views — see the
+// `!ex.archived` filters) rather than deleted. See resyncExercisesFromSeed()
+// for how this reaches an existing install's stored data on load.
 
 (function() {
-  // Exercises where rep count is the primary progression signal; weight
-  // increases are optional and user-driven rather than auto-prompted.
-  const REPS_TYPE_NAMES = new Set([
-    'Romanian Deadlift', "Farmer's Walk",
-    'Behind-the-Back Finger Curls', 'Dead Bug',
-  ]);
-
   function makeEx(dayId, name, def, opts = {}) {
     return {
       id: cryptoId(`d${dayId}_${name}`),
@@ -704,7 +714,18 @@ Object.assign(window, {
       unit: opts.unit ?? 'lbs',
       notation: opts.notation ?? null,
       repUnit: opts.repUnit ?? 'reps',
-      progressionType: REPS_TYPE_NAMES.has(name) ? 'reps' : 'load',
+      // 'load' (default) auto-suggests a weight-range increase at top-of-range
+      // reps; 'reps' never does (form-focus/hold, pelvic-caution, or genuinely
+      // rep-driven movements) — cleared by manually switching it back via the
+      // Edit-mode progression-type toggle. 'manual' (Nordic Curl) means the
+      // app tracks neither load nor reps automatically; see its notation.
+      progressionType: opts.progressionType ?? 'load',
+      // No starting weight yet — the first logged top set becomes the
+      // baseline (weightMin/weightMax) going forward; see logSession().
+      calibration: opts.calibration ?? false,
+      // Exercise definition kept (history stays resolvable/exportable) but
+      // hidden from active workout views — see the `!ex.archived` filters.
+      archived: opts.archived ?? false,
     };
   }
 
@@ -724,46 +745,100 @@ Object.assign(window, {
   }
 
   // ── DAY 1 · PULL ────────────────────────────────────────────
+  // "Lat Pulldown" was already an active Day 1 exercise at exactly this
+  // target (3×10-12 @ 126 lbs) — not created new, just reordered per 5.0.
   add(1, 'Low Rows',                    { sets: 3, repMin: 10, repMax: 12, wMin: 121, wMax: 121, repCap: 12 });
   add(1, 'Lat Pulldown',                { sets: 3, repMin: 10, repMax: 12, wMin: 126, wMax: 126, repCap: 12 });
-  add(1, 'Cable Straight-Arm Pulldown', { sets: 3, repMin: 12, repMax: 15, wMin: 53,  wMax: 53,  repCap: 15 });
   add(1, 'Rear Delt Fly Machine',       { sets: 3, repMin: 15, repMax: 15, wMin: 80,  wMax: 80,  repCap: 15 });
-  add(1, 'Face Pull',                   { sets: 3, repMin: 15, repMax: 15, wMin: 60,  wMax: 60,  repCap: 15 });
+  // Form-focus / hold: progressionType 'reps' means hitting the rep ceiling
+  // never auto-suggests a weight-range increase (manually clear via the
+  // Edit-mode progression-type toggle when ready to resume normal loading).
+  add(1, 'Face Pull',                   { sets: 3, repMin: 15, repMax: 15, wMin: 44,  wMax: 44,  repCap: 15 },
+    { progressionType: 'reps', notation: 'form-focus / hold' });
+  add(1, 'Cable Straight-Arm Pulldown', { sets: 3, repMin: 12, repMax: 15, wMin: 53,  wMax: 53,  repCap: 15 },
+    { progressionType: 'reps', notation: 'form-focus / hold' });
   add(1, 'Incline Dumbbell Curl',       { sets: 3, repMin: 8,  repMax: 10, wMin: 27.5, wMax: 27.5, repCap: 12 });
-  add(1, 'Behind-the-Back Finger Curls',{ sets: 2, repMin: 15, repMax: 15, wMin: 77,  wMax: 77,  repCap: 15 });
+  add(1, 'Behind-the-Back Finger Curls',{ sets: 2, repMin: 15, repMax: 15, wMin: 77,  wMax: 77,  repCap: 15 },
+    { progressionType: 'reps' });
   add(1, 'Dumbbell Hammer Curl',        { sets: 2, repMin: 12, repMax: 12, wMin: 25,  wMax: 30,  repCap: 12 });
 
   // ── DAY 2 · PUSH ────────────────────────────────────────────
-  add(2, 'Incline Dumbbell Press',          { sets: 3, repMin: 8,  repMax: 10, wMin: 50,  wMax: 50,  repCap: 12 });
-  add(2, 'Seated Dumbbell Shoulder Press',  { sets: 3, repMin: 9,  repMax: 10, wMin: 45,  wMax: 45,  repCap: 12 });
-  add(2, 'Flat Dumbbell Bench Press',       { sets: 3, repMin: 12, repMax: 15, wMin: 45,  wMax: 45,  repCap: 15 });
+  // Calibration: no starting weight — the first logged top set becomes the
+  // baseline (see logSession()); no target is shown until then.
+  add(2, 'Incline Barbell Press',           { sets: 3, repMin: 6,  repMax: 10, wMin: 0,   wMax: 0,   repCap: 10 },
+    { calibration: true });
+  add(2, 'Seated Dumbbell Shoulder Press',  { sets: 3, repMin: 9,  repMax: 10, wMin: 47.5, wMax: 50, repCap: 12 });
   add(2, 'Machine Chest Fly (Pec Deck)',    { sets: 3, repMin: 15, repMax: 15, wMin: 110, wMax: 110, repCap: 15 });
-  add(2, 'Lower Chest Cable Fly',           { sets: 3, repMin: 15, repMax: 15, wMin: 30,  wMax: 30,  repCap: 15 });
+  add(2, 'Overhead Triceps Extension',      { sets: 3, repMin: 10, repMax: 12, wMin: 60,  wMax: 65,  repCap: 12 });
   add(2, 'Incline Cable Fly (low-to-high)', { sets: 3, repMin: 12, repMax: 15, wMin: 17,  wMax: 20,  repCap: 15 });
   add(2, 'Lateral Raise',                   { sets: 4, repMin: 13, repMax: 15, wMin: 20,  wMax: 22.5, repCap: 15 });
-  add(2, 'Overhead Triceps Extension',      { sets: 3, repMin: 10, repMax: 12, wMin: 60,  wMax: 65,  repCap: 12 });
-  add(2, 'Cable Triceps Pushdown',          { sets: 3, repMin: 10, repMax: 12, wMin: 77,  wMax: 82,  repCap: 12 });
+  add(2, 'Lower Chest Cable Fly',           { sets: 3, repMin: 15, repMax: 15, wMin: 30,  wMax: 30,  repCap: 15 });
+  add(2, 'Single-Arm Cable Pushdown',       { sets: 3, repMin: 10, repMax: 12, wMin: 30,  wMax: 35,  repCap: 12 },
+    { notation: 'per arm' });
+  // Retired from Push day (app has no independent per-arm data model — see
+  // "unilateral" notes in the report — this is a normal identity retirement,
+  // not that case). History preserved, hidden from active views.
+  add(2, 'Incline Dumbbell Press',    { sets: 3, repMin: 8,  repMax: 10, wMin: 50,  wMax: 50,  repCap: 12 }, { archived: true });
+  add(2, 'Flat Dumbbell Bench Press', { sets: 3, repMin: 12, repMax: 15, wMin: 45,  wMax: 45,  repCap: 15 }, { archived: true });
+  add(2, 'Cable Triceps Pushdown',    { sets: 3, repMin: 10, repMax: 12, wMin: 77,  wMax: 82,  repCap: 12 }, { archived: true });
 
   // ── DAY 3 · LEGS + CORE ─────────────────────────────────────
   add(3, 'Leg Press',           { sets: 4, repMin: 10, repMax: 11, wMin: 180, wMax: 180, repCap: 12 }, { notation: 'per side' });
-  add(3, 'Romanian Deadlift',   { sets: 3, repMin: 12, repMax: 12, wMin: 140, wMax: 140, repCap: 12 });
-  add(3, 'Lying Leg Curl',      { sets: 4, repMin: 12, repMax: 14, wMin: 130, wMax: 130, repCap: 15 });
-  add(3, 'Leg Extension',       { sets: 3, repMin: 12, repMax: 12, wMin: 220, wMax: 220, repCap: 12 });
-  add(3, 'Hip Adduction',       { sets: 2, repMin: 13, repMax: 15, wMin: 130, wMax: 130, repCap: 15 });
+  add(3, 'Lying Leg Curl',      { sets: 4, repMin: 12, repMax: 14, wMin: 145, wMax: 145, repCap: 15 });
+  add(3, 'Bulgarian Split Squat', { sets: 3, repMin: 8,  repMax: 10, wMin: 0, wMax: 0, repCap: 10 },
+    { notation: 'per leg · bodyweight', unit: '', calibration: true });
+  add(3, 'Hip Adduction',       { sets: 4, repMin: 13, repMax: 15, wMin: 130, wMax: 130, repCap: 15 });
+  // Pelvic-caution: progressionType 'reps' suppresses auto weight-increase
+  // suggestions entirely (the app has no cross-session confirmation gate —
+  // "increase only after a pain-free following session" is not enforced by
+  // code, just called out here and in-app via notation; apply manually).
+  add(3, 'Glute Bridge Machine', { sets: 3, repMin: 12, repMax: 15, wMin: 70, wMax: 70, repCap: 15 },
+    { progressionType: 'reps', notation: 'pelvic-caution — confirm pain-free next session before increasing load' });
   add(3, 'Hip Abduction',       { sets: 2, repMin: 15, repMax: 15, wMin: 190, wMax: 190, repCap: 15 });
   add(3, 'Standing Calf Raise', { sets: 3, repMin: 15, repMax: 15, wMin: 130, wMax: 130, repCap: 15 });
-  add(3, 'Dead Bug',            { sets: 3, repMin: 8,  repMax: 8,  wMin: 0,   wMax: 0,   repCap: 12 }, { notation: 'per side · bodyweight', unit: '' });
-  add(3, 'Cable Woodchop',      { sets: 3, repMin: 13, repMax: 13, wMin: 38,  wMax: 45,  repCap: 15 }, { notation: 'per side' });
-  add(3, "Farmer's Walk",       { sets: 3, repMin: 3,  repMax: 3,  wMin: 40,  wMax: 55,  repCap: 5 },  { notation: 'per hand', repUnit: 'laps' });
+  add(3, 'Dead Bug',            { sets: 3, repMin: 8,  repMax: 8,  wMin: 0,   wMax: 0,   repCap: 12 },
+    { notation: 'per side · bodyweight', unit: '', progressionType: 'reps' });
+  add(3, 'Cable Woodchop',      { sets: 3, repMin: 13, repMax: 13, wMin: 38,  wMax: 38,  repCap: 15 },
+    { notation: 'per side · form-focus / hold', progressionType: 'reps' });
+  add(3, "Farmer's Walk",       { sets: 3, repMin: 3,  repMax: 3,  wMin: 60,  wMax: 65,  repCap: 5 },
+    { notation: 'per hand', repUnit: 'laps', progressionType: 'reps' });
+  // Retired — history preserved, hidden from active views. Not used to seed
+  // Glute Bridge Machine or Bulgarian Split Squat's starting numbers.
+  add(3, 'Romanian Deadlift', { sets: 3, repMin: 12, repMax: 12, wMin: 140, wMax: 140, repCap: 12 }, { archived: true });
+  add(3, 'Leg Extension',     { sets: 3, repMin: 12, repMax: 12, wMin: 220, wMax: 220, repCap: 12 }, { archived: true });
 
   // ── DAY 4 · UPPER ───────────────────────────────────────────
-  add(4, 'Flat Dumbbell Bench Press', { sets: 3, repMin: 10, repMax: 12, wMin: 45, wMax: 50, repCap: 12 });
-  add(4, 'Neutral-Grip Row Machine',  { sets: 3, repMin: 12, repMax: 12, wMin: 99, wMax: 99, repCap: 12 });
-  add(4, 'Lateral Raise',             { sets: 3, repMin: 15, repMax: 15, wMin: 17.5, wMax: 17.5, repCap: 15 });
+  add(4, 'Flat Barbell Bench Press', { sets: 3, repMin: 6, repMax: 10, wMin: 0, wMax: 0, repCap: 10 },
+    { calibration: true });
+  add(4, 'Incline Chest-Supported T-Bar Row', { sets: 3, repMin: 8, repMax: 10, wMin: 0, wMax: 0, repCap: 10 },
+    { calibration: true });
   add(4, 'Cable Fly',                 { sets: 3, repMin: 15, repMax: 15, wMin: 22, wMax: 22, repCap: 15 });
-  add(4, 'Close-Grip Bench Press',    { sets: 3, repMin: 10, repMax: 11, wMin: 70, wMax: 75, repCap: 12 });
-  add(4, 'Cable Biceps Curl',         { sets: 3, repMin: 15, repMax: 15, wMin: 55, wMax: 55, repCap: 15 });
+  add(4, 'Cable Front Raise',         { sets: 3, repMin: 12, repMax: 15, wMin: 10, wMax: 15, repCap: 15 },
+    { weightStep: 2.5 });
+  add(4, 'Close-Grip Bench Press',    { sets: 3, repMin: 10, repMax: 11, wMin: 75, wMax: 80, repCap: 12 });
+  add(4, 'Standing Dual-Cable Curl',  { sets: 3, repMin: 10, repMax: 13, wMin: 20, wMax: 25, repCap: 13 },
+    { notation: 'per arm', weightStep: 2.5 });
   add(4, 'Reverse Curl',              { sets: 3, repMin: 12, repMax: 12, wMin: 22.5, wMax: 22.5, repCap: 12 });
+  // Assisted, non-numeric progression: no weight target — track reduced
+  // assistance level in notes rather than added load. Bodyweight (unit '')
+  // so the engine's weight-increase logic never applies; progressionType
+  // 'manual' is a descriptive marker (falls through to the same bodyweight
+  // "never auto-suggest" path as 'load' would, since there's no ceiling to
+  // hit — kept distinct from 'load'/'reps' for clarity in Edit mode).
+  add(4, 'Nordic Curl', { sets: 2, repMin: 5, repMax: 8, wMin: 0, wMax: 0, repCap: 8 },
+    { unit: '', progressionType: 'manual', notation: 'assisted — track reduced assistance level in notes, not added load' });
+  add(4, 'Cable Glute Kickback', { sets: 3, repMin: 12, repMax: 15, wMin: 7.5, wMax: 10, repCap: 15 },
+    { notation: 'per leg', weightStep: 2.5 });
+  // Retired — history preserved, hidden from active views.
+  add(4, 'Flat Dumbbell Bench Press', { sets: 3, repMin: 10, repMax: 12, wMin: 45, wMax: 50, repCap: 12 }, { archived: true });
+  // Data note: this exercise was actually logged as a Low Rows substitute
+  // during machine unavailability — historical data under this name is NOT
+  // true neutral-grip row performance. Kept archived (not deleted) but
+  // intentionally not used to seed T-Bar Row's baseline above.
+  add(4, 'Neutral-Grip Row Machine', { sets: 3, repMin: 12, repMax: 12, wMin: 99, wMax: 99, repCap: 12 },
+    { archived: true, notation: 'data note: logged as a Low Rows substitute, not true neutral-grip row performance' });
+  add(4, 'Lateral Raise',      { sets: 3, repMin: 15, repMax: 15, wMin: 17.5, wMax: 17.5, repCap: 15 }, { archived: true });
+  add(4, 'Cable Biceps Curl',  { sets: 3, repMin: 15, repMax: 15, wMin: 55, wMax: 55, repCap: 15 }, { archived: true });
 
   // ── Expose ──────────────────────────────────────────────────
   window.SEED_STORE = {
@@ -1350,6 +1425,8 @@ function LoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustomWeigh
   // True while a text field is focused. Gates BOTH the auto-advance and the
   // Save action so nothing fires mid-typing in the custom-weight field.
   const [typing, setTyping] = useState(false);
+  // Session note draft — one-off, saved onto THIS session only (see onDone).
+  const [sessionNote, setSessionNote] = useState('');
 
   const updateSet = (i, patch) => {
     setSets(prev => prev.map((s, idx) => idx === i ? { ...s, ...patch } : s));
@@ -1436,6 +1513,29 @@ function LoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustomWeigh
         })}
       </div>
 
+      {/* Session note — one-off, tied to THIS logged session/date only. Kept
+          visually and verbally distinct from the exercise's standing note
+          (added separately from the card, see ExerciseNote) so the user
+          never has to guess which one they're writing. */}
+      <div style={{ marginTop: 18 }}>
+        <div style={{
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+          textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6,
+        }}>Note for today's session (optional)</div>
+        <textarea
+          value={sessionNote}
+          onChange={e => setSessionNote(e.target.value)}
+          placeholder="One-off — this date only, not carried to future sessions…"
+          rows={2}
+          style={{
+            width: '100%', padding: 12,
+            border: '1px solid var(--hair)', borderRadius: 6,
+            background: 'var(--paper)', fontSize: 13.5, color: 'var(--ink)',
+            outline: 'none', lineHeight: 1.5,
+          }}
+        />
+      </div>
+
       <div style={{ display: 'flex', gap: 10, paddingTop: 24 }}>
         <button onClick={onCancel} className="tap" style={{
           flex: 1, height: 48, borderRadius: 6,
@@ -1445,7 +1545,7 @@ function LoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustomWeigh
           Cancel
         </button>
         <button
-          onClick={() => { if (typing) return; if (allLogged) onDone(sets); }}
+          onClick={() => { if (typing) return; if (allLogged) onDone(sets, sessionNote.trim()); }}
           disabled={!allLogged}
           className="tap" style={{
           flex: 2, height: 48, borderRadius: 6,
@@ -1837,7 +1937,7 @@ function ExerciseNote({ note, onSave, onDelete }) {
           color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 600,
         }}
       >
-        + Add note
+        + Add standing note
       </button>
     );
   }
@@ -1850,11 +1950,17 @@ function ExerciseNote({ note, onSave, onDelete }) {
         borderRadius: 'var(--card-radius)',
         display: 'flex', gap: 12, alignItems: 'flex-start',
       }}>
-        <div style={{
-          flex: 1, fontSize: 13.5, color: 'var(--ink-2)',
-          lineHeight: 1.55, whiteSpace: 'pre-wrap',
-        }}>
-          {note.text}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+            textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6, fontWeight: 700,
+          }}>Standing note · every session</div>
+          <div style={{
+            fontSize: 13.5, color: 'var(--ink-2)',
+            lineHeight: 1.55, whiteSpace: 'pre-wrap',
+          }}>
+            {note.text}
+          </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
           <button
@@ -1868,13 +1974,14 @@ function ExerciseNote({ note, onSave, onDelete }) {
           >Edit</button>
           <button
             onClick={onDelete}
+            aria-label="Dismiss standing note"
             className="tap"
             style={{
               padding: '4px 8px', minHeight: 28,
               fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
               color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 600,
             }}
-          >Delete</button>
+          >✕ Dismiss</button>
         </div>
       </div>
     );
@@ -1883,10 +1990,14 @@ function ExerciseNote({ note, onSave, onDelete }) {
   // editing
   return (
     <div className="reveal" style={{ marginTop: 14 }}>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+        textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6, fontWeight: 700,
+      }}>Standing note</div>
       <textarea
         value={draft}
         onChange={e => { setDraft(e.target.value); setJustSaved(false); }}
-        placeholder="Form cues, tweaks, things to remember next session…"
+        placeholder="Persists on this exercise every session until dismissed — form cues, reminders…"
         rows={3}
         autoFocus
         style={{
@@ -1936,6 +2047,7 @@ function ExerciseNote({ note, onSave, onDelete }) {
         {hasNote && (
           <button
             onClick={() => { onDelete(); setEditing(false); setDraft(''); }}
+            aria-label="Dismiss standing note"
             className="tap"
             style={{
               padding: '0 10px', height: 36,
@@ -1943,7 +2055,7 @@ function ExerciseNote({ note, onSave, onDelete }) {
               color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 600,
             }}
           >
-            Delete
+            ✕ Dismiss
           </button>
         )}
       </div>
@@ -1957,7 +2069,7 @@ function ExerciseNote({ note, onSave, onDelete }) {
 // the actual three-state logic lives in nextSessionVerdict() (progression.js).
 // Returns true if the session's verdict raises the weight range, so the
 // caller can confirm with the user before applying it.
-function commitSession(ex, sets, { onLog, onAddCustomWeight }) {
+function commitSession(ex, sets, note, { onLog, onAddCustomWeight }) {
   if (onAddCustomWeight) {
     sets.forEach(s => {
       if (s.weight != null && s.weight > 0) onAddCustomWeight(ex.id, s.weight);
@@ -1968,7 +2080,7 @@ function commitSession(ex, sets, { onLog, onAddCustomWeight }) {
     perSet: sets.map(s => nextSessionVerdict(ex, s)),
     status: deriveStatus(ex),
   };
-  onLog(ex.id, { sets, summary: snapshot }, deriveStatus(ex));
+  onLog(ex.id, { sets, note, summary: snapshot }, deriveStatus(ex));
   return sessionRaisesRange(ex, sets);
 }
 
@@ -2415,8 +2527,8 @@ function LiveExerciseView({
     return summarize(ex, history);
   }, [ex, history, justLogged]);
 
-  const handleDone = (sets) => {
-    const raisesRange = commitSession(ex, sets, { onLog, onAddCustomWeight });
+  const handleDone = (sets, note) => {
+    const raisesRange = commitSession(ex, sets, note, { onLog, onAddCustomWeight });
     setJustLogged(sets);
     if (raisesRange) {
       const step = incrementFor(ex);
@@ -2609,7 +2721,7 @@ const STORAGE_KEY = 'pol_tracker_v1';
 // hardcoded session history) is RECONCILED into whatever is stored: missing
 // exercises are added and missing seeded sessions are merged in by
 // exercise+date, but nothing you've logged is ever overwritten or removed.
-const SEED_VERSION = 4;
+const SEED_VERSION = 6;
 
 // ── Storage layer ─────────────────────────────────────────────
 function loadStore() {
@@ -2685,6 +2797,32 @@ function refreshTargetsFromSeed(store) {
   return store;
 }
 
+// Rebuild each day's exercise ORDER (and archived/calibration flags) from
+// the current seed, on a version bump only. refreshTargetsFromSeed already
+// syncs target numbers for matched IDs but never touches array position or
+// the archived/calibration flags, so a reorder- or archive-only seed change
+// (like Workout 5.0) wouldn't otherwise reach an existing install. Session
+// history (store.sessions) lives outside day.exercises and is never touched
+// here; a genuinely custom exercise (added via "+ Add Exercise", not part of
+// any seed) is kept, appended after the seed-ordered ones. An exercise the
+// user explicitly removed (removedExerciseIds) is not resurrected.
+function resyncExercisesFromSeed(store) {
+  const seedDays = (typeof SEED_STORE !== 'undefined' && SEED_STORE.days) ? SEED_STORE.days : null;
+  if (!seedDays) return store;
+  const removedIds = new Set(store.removedExerciseIds || []);
+  store.days = (store.days || []).map(day => {
+    const seedDay = seedDays.find(sd => sd.id === day.id);
+    if (!seedDay) return day;
+    const seedIds = new Set(seedDay.exercises.map(e => e.id));
+    const custom = (day.exercises || []).filter(e => !seedIds.has(e.id));
+    const ordered = seedDay.exercises
+      .filter(se => !removedIds.has(se.id))
+      .map(se => JSON.parse(JSON.stringify(se)));
+    return { ...day, exercises: [...ordered, ...custom] };
+  });
+  return store;
+}
+
 // ── Seed-rename migration ─────────────────────────────────────
 // When a seed exercise is renamed its cryptoId changes (IDs are derived from
 // name). Add an entry here for every such rename; the migration finds the old
@@ -2745,10 +2883,14 @@ function reconcileStore(store) {
   const upgrading = store.seedVersion !== SEED_VERSION;
   applySeedRenames(store); // must run before reconcileDays
   reconcileDays(store);
-  // One-time, on a version bump only: align targets with the latest seed so
-  // existing installs reflect the new (June) progression. Never re-runs once
-  // stamped, so any future in-app progression you make is preserved.
-  if (upgrading) refreshTargetsFromSeed(store);
+  // One-time, on a version bump only: align targets (and order/archived
+  // flags) with the latest seed so existing installs reflect the new
+  // progression. Never re-runs once stamped, so any future in-app
+  // progression you make is preserved.
+  if (upgrading) {
+    refreshTargetsFromSeed(store);
+    resyncExercisesFromSeed(store);
+  }
   if (typeof mergeSeedHistory === 'function') mergeSeedHistory(store);
   store.seedVersion = SEED_VERSION;
   return store;
@@ -2956,12 +3098,28 @@ function App() {
       target: targetString(ex),
       summary: summary || null,
     };
+    // Calibration: the FIRST-EVER logged session for this exercise sets its
+    // baseline weight range from the actual top set, then clears the flag so
+    // every later session behaves like a normal exercise. No-op for a
+    // bodyweight calibration exercise (nothing to calibrate weight-wise).
+    const isFirstEverSession = !(store.sessions[exId] && store.sessions[exId].length);
+    const isBw = ex.unit === '' && ex.weightMin === 0 && ex.weightMax === 0;
+    const shouldCalibrate = ex.calibration && isFirstEverSession && !isBw;
+    const baseline = shouldCalibrate ? roundToStep(maxWeight(sets), ex.weightStep || 5) : null;
     setStore(s => ({
       ...s,
       sessions: {
         ...s.sessions,
         [exId]: [...(s.sessions[exId] || []), entry],
       },
+      days: shouldCalibrate
+        ? s.days.map(d => ({
+            ...d,
+            exercises: d.exercises.map(e => e.id === exId
+              ? { ...e, calibration: false, weightMin: baseline, weightMax: baseline }
+              : e),
+          }))
+        : s.days,
     }));
     updateDoneIds(prev => new Set(prev).add(exId));
   };
@@ -3294,7 +3452,9 @@ function App() {
   };
 
   // ── Render ────────────────────────────────────────────────────
-  const exercises = day.exercises;
+  // Archived exercises stay in day.exercises (so History/Export can still
+  // resolve their name/unit/target) but never appear in the active list.
+  const exercises = day.exercises.filter(ex => !ex.archived);
 
   return (
     <div className="app-scroll">
@@ -3594,6 +3754,9 @@ function sessionsForDate(store, dateKey) {
 // Build the mailto payload for one date.
 //   Subject: "Training Log — <date>"
 //   Body:    every exercise logged that day, each set as reps×weight, + notes.
+// Standing notes (store.notes[exId]) are reference info for while you're
+// logging (machine setup, etc.) and are intentionally NEVER included here —
+// only session notes (day-specific observations) go in the export.
 function buildDateEmail(store, dateKey) {
   const pretty = prettyDateFromKey(dateKey);
   const subject = `Training Log — ${pretty}`;
@@ -3622,6 +3785,9 @@ function buildDateEmail(store, dateKey) {
 // Build the mailto payload for a date range (startKey..endKey inclusive).
 // Days with no logged sessions are skipped silently. If only one date has
 // data, the subject and body degrade to the same format as buildDateEmail.
+// Standing notes (store.notes[exId]) are reference info for while you're
+// logging (machine setup, etc.) and are intentionally NEVER included here —
+// only session notes (day-specific observations) go in the export.
 function buildRangeEmail(store, startKey, endKey) {
   // Walk every calendar day in the range.
   const allDayGroups = []; // [{ dateKey, pretty, groups }]
@@ -3692,7 +3858,12 @@ function ExportLauncherButton({ onOpen }) {
 
 // ── Edit pane ─────────────────────────────────────────────────
 function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImport, onReset, onTogglePlateau }) {
-  const exercises = day.exercises;
+  // Archived exercises stay in day.exercises but are hidden here too. Move
+  // targets are resolved by id against the FULL array (not the filtered
+  // list's position) so an up/down click always swaps with the neighboring
+  // ACTIVE exercise, even if an archived one sits between them underneath.
+  const allExercises = day.exercises;
+  const exercises = allExercises.filter(ex => !ex.archived);
   const GAP = 24;
 
   return (
@@ -3713,19 +3884,26 @@ function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImpo
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, marginTop: 20 }}>
-        {exercises.map((ex, i) => (
-          <EditRow
-            key={ex.id}
-            ex={ex}
-            isFirst={i === 0}
-            isLast={i === exercises.length - 1}
-            onMoveUp={() => onMove(dayIndex, i, i - 1)}
-            onMoveDown={() => onMove(dayIndex, i, i + 1)}
-            onUpdate={onUpdate}
-            onRemove={onRemove}
-            onTogglePlateau={onTogglePlateau}
-          />
-        ))}
+        {exercises.map((ex, i) => {
+          const fullIndex = allExercises.findIndex(e => e.id === ex.id);
+          const prevActive = exercises[i - 1];
+          const nextActive = exercises[i + 1];
+          const prevFullIndex = prevActive ? allExercises.findIndex(e => e.id === prevActive.id) : -1;
+          const nextFullIndex = nextActive ? allExercises.findIndex(e => e.id === nextActive.id) : -1;
+          return (
+            <EditRow
+              key={ex.id}
+              ex={ex}
+              isFirst={i === 0}
+              isLast={i === exercises.length - 1}
+              onMoveUp={() => prevFullIndex >= 0 && onMove(dayIndex, fullIndex, prevFullIndex)}
+              onMoveDown={() => nextFullIndex >= 0 && onMove(dayIndex, fullIndex, nextFullIndex)}
+              onUpdate={onUpdate}
+              onRemove={onRemove}
+              onTogglePlateau={onTogglePlateau}
+            />
+          );
+        })}
       </div>
 
       <button onClick={onAdd} className="tap" style={{
@@ -3964,6 +4142,10 @@ function ImportSheet({ currentJson, onImport, onClose }) {
 // Sessions are preserved indefinitely in localStorage. This sheet lets the
 // user pick any week that has logged sessions and export just that week.
 // If only one week of data exists, the picker is skipped automatically.
+// Standing notes (store.notes[exId]) are reference info for while you're
+// logging (machine setup, etc.) and are intentionally never shown here —
+// this preview must match the actual emailed/copied body exactly, which
+// only ever includes session notes.
 function GroupPreview({ groups }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -3992,7 +4174,7 @@ function GroupPreview({ groups }) {
                 </div>
                 {session.note && (
                   <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
-                    "{session.note}"
+                    “{session.note}”
                   </div>
                 )}
               </div>
@@ -4486,8 +4668,10 @@ function HistoryDayEditor({ store, dateKey, onEditSets, onAddSession, onRemoveSe
   );
 
   // Get all exercises for a given day that aren't yet logged this date
+  // (excludes archived — you can still edit their existing entries, just not
+  // backfill new ones for a retired exercise).
   const unloggedForDay = (day) =>
-    day.exercises.filter(ex => !loggedExIds.has(ex.id));
+    day.exercises.filter(ex => !ex.archived && !loggedExIds.has(ex.id));
 
   const [newExSets, setNewExSets] = useState([{ reps: 8, weight: 0 }]);
 
@@ -4579,7 +4763,7 @@ function HistoryDayEditor({ store, dateKey, onEditSets, onAddSession, onRemoveSe
                 marginBottom: 14,
               }}>Day {g.day.id} · {g.day.name}</div>
 
-              {g.items.map(({ ex }) => {
+              {g.items.map(({ ex, session }) => {
                 const sets = localSets[ex.id] || [];
                 const isDirty = dirty[ex.id];
                 const verdict = governingVerdict(ex, sets);
@@ -4613,6 +4797,17 @@ function HistoryDayEditor({ store, dateKey, onEditSets, onAddSession, onRemoveSe
                         }}
                       >Remove</button>
                     </div>
+
+                    {/* Session note for this date — display only, same as the
+                        inline per-card History view and the export preview. */}
+                    {session.note && (
+                      <div style={{
+                        marginTop: -4, marginBottom: 12, fontSize: 12.5,
+                        color: 'var(--ink-2)', lineHeight: 1.5,
+                      }}>
+                        “{session.note}”
+                      </div>
+                    )}
 
                     {/* Column labels */}
                     <div style={{
