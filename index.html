@@ -3754,8 +3754,9 @@ function sessionsForDate(store, dateKey) {
 // Build the mailto payload for one date.
 //   Subject: "Training Log — <date>"
 //   Body:    every exercise logged that day, each set as reps×weight, + notes.
-// Standing notes (store.notes[exId]) are inline too, once per exercise (the
-// first time it appears — see buildRangeEmail for why).
+// Standing notes (store.notes[exId]) are reference info for while you're
+// logging (machine setup, etc.) and are intentionally NEVER included here —
+// only session notes (day-specific observations) go in the export.
 function buildDateEmail(store, dateKey) {
   const pretty = prettyDateFromKey(dateKey);
   const subject = `Training Log — ${pretty}`;
@@ -3764,7 +3765,6 @@ function buildDateEmail(store, dateKey) {
     return { to: EMAIL_TO, subject, body: `No sessions logged for ${pretty}.`, hasData: false, groups };
   }
   const lines = [`Training Log — ${pretty}`, ''];
-  const standingNoteShown = new Set();
   for (const g of groups) {
     lines.push(`Day ${g.day.id} · ${g.day.name}`);
     for (const { ex, session } of g.items) {
@@ -3775,11 +3775,6 @@ function buildDateEmail(store, dateKey) {
           : `${st.reps}×${fmt(st.weight)}${ex.unit ? ' ' + ex.unit : ''}`
       )).join(', ');
       lines.push(`  ${setStr}`);
-      const standing = store.notes && store.notes[ex.id];
-      if (standing && standing.text && !standingNoteShown.has(ex.id)) {
-        lines.push(`  Standing note: "${standing.text}"`);
-        standingNoteShown.add(ex.id);
-      }
       if (session.note) lines.push(`  Note: "${session.note}"`);
     }
     lines.push('');
@@ -3790,10 +3785,9 @@ function buildDateEmail(store, dateKey) {
 // Build the mailto payload for a date range (startKey..endKey inclusive).
 // Days with no logged sessions are skipped silently. If only one date has
 // data, the subject and body degrade to the same format as buildDateEmail.
-// Standing notes (store.notes[exId]) are inline too — printed once per
-// exercise, the FIRST time it appears in the range (earliest date), not on
-// every later occurrence, to keep a multi-week export from repeating the
-// same standing note on every session of that exercise.
+// Standing notes (store.notes[exId]) are reference info for while you're
+// logging (machine setup, etc.) and are intentionally NEVER included here —
+// only session notes (day-specific observations) go in the export.
 function buildRangeEmail(store, startKey, endKey) {
   // Walk every calendar day in the range.
   const allDayGroups = []; // [{ dateKey, pretty, groups }]
@@ -3816,7 +3810,6 @@ function buildRangeEmail(store, startKey, endKey) {
     : `Training Log — ${allDayGroups[0].pretty}–${allDayGroups[allDayGroups.length - 1].pretty}`;
 
   const lines = [subject, ''];
-  const standingNoteShown = new Set();
   for (const { pretty, groups } of allDayGroups) {
     // Day names from each routine-day group logged that date.
     const dayNames = [...new Set(groups.map(g => g.day.name))].join(' · ');
@@ -3832,11 +3825,6 @@ function buildRangeEmail(store, startKey, endKey) {
             : `${st.reps}×${fmt(st.weight)}${ex.unit ? ' ' + ex.unit : ''}`
         )).join(', ');
         lines.push(`  ${setStr}`);
-        const standing = store.notes && store.notes[ex.id];
-        if (standing && standing.text && !standingNoteShown.has(ex.id)) {
-          lines.push(`  Standing note: "${standing.text}"`);
-          standingNoteShown.add(ex.id);
-        }
         if (session.note) lines.push(`  Note: "${session.note}"`);
       }
       lines.push('');
@@ -4154,12 +4142,11 @@ function ImportSheet({ currentJson, onImport, onClose }) {
 // Sessions are preserved indefinitely in localStorage. This sheet lets the
 // user pick any week that has logged sessions and export just that week.
 // If only one week of data exists, the picker is skipped automatically.
-// notes = store.notes (standing notes, keyed by exercise id). showStandingIds,
-// if given, restricts which exercises show their standing note in THIS block
-// (used by the range preview to show it only on the first date it appears —
-// see ExportSheet). Omit showStandingIds to always show when present (single
-// date / "today" preview, where there's only one occurrence anyway).
-function GroupPreview({ groups, notes, showStandingIds }) {
+// Standing notes (store.notes[exId]) are reference info for while you're
+// logging (machine setup, etc.) and are intentionally never shown here —
+// this preview must match the actual emailed/copied body exactly, which
+// only ever includes session notes.
+function GroupPreview({ groups }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {groups.map(g => (
@@ -4170,38 +4157,28 @@ function GroupPreview({ groups, notes, showStandingIds }) {
             marginBottom: 10,
           }}>Day {g.day.id} · {g.day.name}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {g.items.map(({ ex, session }, i) => {
-              const standing = notes && notes[ex.id];
-              const showStanding = !!(standing && standing.text
-                && (!showStandingIds || showStandingIds.has(ex.id)));
-              return (
-                <div key={i}>
-                  <div style={{
-                    fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 600,
-                    color: 'var(--ink)', letterSpacing: '-0.01em',
-                  }}>{ex.name}</div>
-                  <div className="num" style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.5 }}>
-                    {session.sets.map((st, j) => (
-                      <span key={j}>
-                        {st.reps}<span style={{ color: 'var(--muted-2)' }}>×</span>{fmt(st.weight)}
-                        {j < session.sets.length - 1 && <span style={{ color: 'var(--muted-2)', margin: '0 6px' }}>·</span>}
-                      </span>
-                    ))}
-                    {ex.unit && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 6 }}>{ex.unit}</span>}
-                  </div>
-                  {showStanding && (
-                    <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--accent)', lineHeight: 1.5 }}>
-                      Standing note: “{standing.text}”
-                    </div>
-                  )}
-                  {session.note && (
-                    <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
-                      “{session.note}”
-                    </div>
-                  )}
+            {g.items.map(({ ex, session }, i) => (
+              <div key={i}>
+                <div style={{
+                  fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 600,
+                  color: 'var(--ink)', letterSpacing: '-0.01em',
+                }}>{ex.name}</div>
+                <div className="num" style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.5 }}>
+                  {session.sets.map((st, j) => (
+                    <span key={j}>
+                      {st.reps}<span style={{ color: 'var(--muted-2)' }}>×</span>{fmt(st.weight)}
+                      {j < session.sets.length - 1 && <span style={{ color: 'var(--muted-2)', margin: '0 6px' }}>·</span>}
+                    </span>
+                  ))}
+                  {ex.unit && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 6 }}>{ex.unit}</span>}
                 </div>
-              );
-            })}
+                {session.note && (
+                  <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+                    “{session.note}”
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       ))}
@@ -4272,29 +4249,6 @@ function ExportSheet({ store, onClose }) {
     }
     return (singleEmail.groups || []).reduce((n, g) => n + g.items.length, 0);
   }, [hasData, mode, singleEmail, rangeEmail]);
-
-  // Which (date, exercise) pairs should show the standing note in the range
-  // preview — only the FIRST date (earliest) that exercise appears on,
-  // mirroring buildRangeEmail's dedup so the on-screen preview matches the
-  // actual emailed/copied body exactly.
-  const rangeStandingByDate = useMemo(() => {
-    const map = {};
-    if (mode !== 'range' || !hasData) return map;
-    const shown = new Set();
-    for (const { dateKey: dk, groups } of (rangeEmail.allDayGroups || [])) {
-      const forDate = new Set();
-      for (const g of groups) {
-        for (const { ex } of g.items) {
-          if (!shown.has(ex.id) && store.notes && store.notes[ex.id] && store.notes[ex.id].text) {
-            forDate.add(ex.id);
-            shown.add(ex.id);
-          }
-        }
-      }
-      map[dk] = forDate;
-    }
-    return map;
-  }, [mode, hasData, rangeEmail, store.notes]);
 
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -4442,7 +4396,7 @@ function ExportSheet({ store, onClose }) {
       {/* ── Preview body ── */}
       {mode !== 'range' && (
         hasData ? (
-          <GroupPreview groups={singleEmail.groups} notes={store.notes} />
+          <GroupPreview groups={singleEmail.groups} />
         ) : (
           <div style={{
             padding: '22px 16px', borderRadius: 8,
@@ -4472,7 +4426,7 @@ function ExportSheet({ store, onClose }) {
                     letterSpacing: '0.10em', textTransform: 'uppercase', fontWeight: 700,
                   }}>{groups.map(g => g.day.name).join(' · ')}</span>
                 </div>
-                <GroupPreview groups={groups} notes={store.notes} showStandingIds={rangeStandingByDate[dk]} />
+                <GroupPreview groups={groups} />
               </div>
             ))}
           </div>
