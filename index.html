@@ -785,15 +785,15 @@ Object.assign(window, {
   // New compound row, folded in from the retired Day 4 — PULL previously had
   // no free-weight/machine compound row. Calibration: first logged top set
   // becomes the baseline.
-  add(1, 'Incline Chest-Supported T-Bar Row', { sets: 3, repMin: 8, repMax: 10, wMin: 0, wMax: 0, repCap: 10 },
-    { calibration: true, weightStep: 2.5 });
-  add(1, 'Rear Delt Fly Machine',       { sets: 3, repMin: 15, repMax: 15, wMin: 32.5, wMax: 32.5, repCap: 15 }, { weightStep: 2.5 });
+  add(1, 'Incline Chest-Supported T-Bar Row', { sets: 3, repMin: 8, repMax: 10, wMin: 36, wMax: 36, repCap: 10 },
+    { weightStep: 2.5 });
+  add(1, 'Rear Delt Fly Machine',       { sets: 3, repMin: 15, repMax: 15, wMin: 32.5, wMax: 40, repCap: 15 }, { weightStep: 2.5 });
   // Form-focus / hold: progressionType 'reps' means hitting the rep ceiling
   // never auto-suggests a weight-range increase (manually clear via the
   // Edit-mode progression-type toggle when ready to resume normal loading).
-  add(1, 'Face Pull',                   { sets: 3, repMin: 15, repMax: 15, wMin: 17.5, wMax: 17.5, repCap: 15 },
+  add(1, 'Face Pull',                   { sets: 3, repMin: 15, repMax: 15, wMin: 50, wMax: 50, repCap: 15 },
     { progressionType: 'reps', notation: 'form-focus / hold', weightStep: 2.5 });
-  add(1, 'Incline Dumbbell Curl',       { sets: 3, repMin: 8,  repMax: 10, wMin: 11.25, wMax: 11.25, repCap: 12 }, { weightStep: 1.25 });
+  add(1, 'Incline Dumbbell Curl',       { sets: 3, repMin: 8,  repMax: 10, wMin: 12, wMax: 12, repCap: 12 }, { weightStep: 1.25 });
   add(1, 'Dumbbell Hammer Curl',        { sets: 2, repMin: 12, repMax: 12, wMin: 10, wMax: 12.5, repCap: 12 }, { weightStep: 1.25 });
   // Trimmed for the 3-day consolidation (session was getting long once
   // T-Bar Row was added). Retired, not deleted — history preserved below.
@@ -811,16 +811,16 @@ Object.assign(window, {
   // ── DAY 2 · PUSH ────────────────────────────────────────────
   // Calibration: no starting weight — the first logged top set becomes the
   // baseline (see logSession()); no target is shown until then.
-  add(2, 'Incline Barbell Press',           { sets: 3, repMin: 6,  repMax: 10, wMin: 0,    wMax: 0,   repCap: 10 },
-    { calibration: true, weightStep: 2.5 });
+  add(2, 'Incline Barbell Press',           { sets: 3, repMin: 6,  repMax: 10, wMin: 25,   wMax: 25,  repCap: 10 },
+    { weightStep: 2.5 });
   add(2, 'Seated Dumbbell Shoulder Press',  { sets: 3, repMin: 9,  repMax: 10, wMin: 20,   wMax: 20,  repCap: 12 }, { weightStep: 1.25 });
   add(2, 'Machine Chest Fly (Pec Deck)',    { sets: 3, repMin: 15, repMax: 15, wMin: 45,   wMax: 45,  repCap: 15 }, { weightStep: 2.5 });
-  add(2, 'Overhead Triceps Extension',      { sets: 3, repMin: 10, repMax: 12, wMin: 25,   wMax: 27.5, repCap: 12 }, { weightStep: 2.5 });
-  add(2, 'Incline Cable Fly (low-to-high)', { sets: 3, repMin: 12, repMax: 15, wMin: 7.5,  wMax: 7.5, repCap: 15 }, { weightStep: 2.5 });
-  add(2, 'Lateral Raise',                   { sets: 4, repMin: 13, repMax: 15, wMin: 8.75, wMax: 8.75, repCap: 15 }, { weightStep: 1.25 });
+  add(2, 'Overhead Triceps Extension',      { sets: 3, repMin: 10, repMax: 12, wMin: 57,   wMax: 57,   repCap: 12 }, { weightStep: 2.5 });
+  add(2, 'Incline Cable Fly (low-to-high)', { sets: 3, repMin: 12, repMax: 15, wMin: 35,   wMax: 35,   repCap: 15 }, { weightStep: 2.5 });
+  add(2, 'Lateral Raise',                   { sets: 4, repMin: 13, repMax: 15, wMin: 8,    wMax: 8,    repCap: 15 }, { weightStep: 1.25 });
   // New, folded in from the retired Day 4 — front delt was under-trained
   // relative to side/rear delt work.
-  add(2, 'Cable Front Raise',               { sets: 3, repMin: 12, repMax: 15, wMin: 3.75, wMax: 6.25, repCap: 15 }, { weightStep: 1.25 });
+  add(2, 'Cable Front Raise',               { sets: 3, repMin: 12, repMax: 15, wMin: 10,   wMax: 10,   repCap: 15 }, { weightStep: 1.25 });
   // Trimmed for the 3-day consolidation (redundant chest/triceps isolation
   // once session volume was reviewed). Retired, not deleted.
   add(2, 'Lower Chest Cable Fly',           { sets: 3, repMin: 15, repMax: 15, wMin: 12.5, wMax: 12.5, repCap: 15 }, { weightStep: 2.5, archived: true });
@@ -840,9 +840,9 @@ Object.assign(window, {
   // ── DAY 3 · LEGS + CORE ─────────────────────────────────────
   add(3, 'Leg Press',           { sets: 4, repMin: 10, repMax: 11, wMin: 70, wMax: 70, repCap: 12 }, { notation: 'per side', weightStep: 2.5 });
   add(3, 'Lying Leg Curl',      { sets: 4, repMin: 12, repMax: 14, wMin: 55, wMax: 55, repCap: 15 }, { weightStep: 2.5 });
-  add(3, 'Bulgarian Split Squat', { sets: 3, repMin: 8,  repMax: 10, wMin: 0, wMax: 0, repCap: 10 },
-    { notation: 'per leg · bodyweight', unit: '', calibration: true });
-  add(3, 'Hip Adduction',       { sets: 4, repMin: 13, repMax: 15, wMin: 52.5, wMax: 52.5, repCap: 15 }, { weightStep: 2.5 });
+  add(3, 'Bulgarian Split Squat', { sets: 3, repMin: 8,  repMax: 10, wMin: 10, wMax: 10, repCap: 10 },
+    { notation: 'per leg · dumbbell in one hand', weightStep: 1.25 });
+  add(3, 'Hip Adduction',       { sets: 4, repMin: 13, repMax: 15, wMin: 40, wMax: 40, repCap: 15 }, { weightStep: 2.5 });
   // Pelvic-caution: progressionType 'reps' suppresses auto weight-increase
   // suggestions entirely (the app has no cross-session confirmation gate —
   // "increase only after a pain-free following session" is not enforced by
@@ -850,11 +850,11 @@ Object.assign(window, {
   // Cut more aggressively than other Day 3 movements for the return from
   // layoff, given the pelvic injury history and elevated re-injury risk
   // after time off.
-  add(3, 'Glute Bridge Machine', { sets: 3, repMin: 12, repMax: 15, wMin: 27.5, wMax: 27.5, repCap: 15 },
+  add(3, 'Glute Bridge Machine', { sets: 3, repMin: 12, repMax: 15, wMin: 15, wMax: 15, repCap: 15 },
     { progressionType: 'reps', notation: 'pelvic-caution — confirm pain-free next session before increasing load', weightStep: 2.5 });
-  add(3, 'Hip Abduction',       { sets: 2, repMin: 15, repMax: 15, wMin: 75, wMax: 75, repCap: 15 }, { weightStep: 2.5 });
-  add(3, 'Standing Calf Raise', { sets: 3, repMin: 15, repMax: 15, wMin: 52.5, wMax: 52.5, repCap: 15 }, { weightStep: 2.5 });
-  add(3, 'Dead Bug',            { sets: 3, repMin: 8,  repMax: 8,  wMin: 0,   wMax: 0,   repCap: 12 },
+  add(3, 'Hip Abduction',       { sets: 2, repMin: 15, repMax: 15, wMin: 60, wMax: 60, repCap: 15 }, { weightStep: 2.5 });
+  add(3, 'Standing Calf Raise', { sets: 3, repMin: 15, repMax: 15, wMin: 62, wMax: 62, repCap: 15 }, { weightStep: 2.5 });
+  add(3, 'Dead Bug',            { sets: 3, repMin: 10, repMax: 10, wMin: 0,  wMax: 0,  repCap: 12 },
     { notation: 'per side · bodyweight', unit: '', progressionType: 'reps' });
   // Trimmed for session length on the return from layoff — redundant with
   // Dead Bug's anti-extension core work, and the most skippable of Day 3's
@@ -863,7 +863,7 @@ Object.assign(window, {
   // the injury history). Retired, not deleted — history preserved.
   add(3, 'Cable Woodchop',      { sets: 3, repMin: 13, repMax: 13, wMin: 15, wMax: 15, repCap: 15 },
     { notation: 'per side · form-focus / hold', progressionType: 'reps', weightStep: 2.5, archived: true });
-  add(3, "Farmer's Walk",       { sets: 3, repMin: 3,  repMax: 3,  wMin: 25, wMax: 26.25, repCap: 5 },
+  add(3, "Farmer's Walk",       { sets: 3, repMin: 3,  repMax: 3,  wMin: 60, wMax: 60,    repCap: 5 },
     { notation: 'per hand', repUnit: 'laps', progressionType: 'reps', weightStep: 1.25 });
   // Retired — history preserved, hidden from active views. Not used to seed
   // Glute Bridge Machine or Bulgarian Split Squat's starting numbers.
@@ -2757,7 +2757,7 @@ const STORAGE_KEY = 'pol_tracker_v1';
 // hardcoded session history) is RECONCILED into whatever is stored: missing
 // exercises are added and missing seeded sessions are merged in by
 // exercise+date, but nothing you've logged is ever overwritten or removed.
-const SEED_VERSION = 7;
+const SEED_VERSION = 8;
 
 // ── Storage layer ─────────────────────────────────────────────
 function loadStore() {
