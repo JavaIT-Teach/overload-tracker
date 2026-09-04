@@ -757,6 +757,7 @@ Object.assign(window, {
     { id: 1, name: 'PULL',  subtitle: 'Back · Biceps · Forearms',           exercises: [] },
     { id: 2, name: 'PUSH',  subtitle: 'Chest · Shoulders · Triceps',        exercises: [] },
     { id: 3, name: 'LEGS',  subtitle: 'Lower Body · Core',                  exercises: [] },
+    { id: 4, name: 'UPPER', subtitle: 'Chest · Back · Shoulders · Arms',    exercises: [] },
   ];
 
   // add(dayId, name, def, opts) — pushes an exercise definition. No sessions
@@ -793,20 +794,14 @@ Object.assign(window, {
   // Edit-mode progression-type toggle when ready to resume normal loading).
   add(1, 'Face Pull',                   { sets: 3, repMin: 15, repMax: 15, wMin: 50, wMax: 50, repCap: 15 },
     { progressionType: 'reps', notation: 'form-focus / hold', weightStep: 2.5 });
-  add(1, 'Incline Dumbbell Curl',       { sets: 3, repMin: 8,  repMax: 10, wMin: 12, wMax: 12, repCap: 12 }, { weightStep: 1.25 });
-  add(1, 'Dumbbell Hammer Curl',        { sets: 2, repMin: 12, repMax: 12, wMin: 10, wMax: 12.5, repCap: 12 }, { weightStep: 1.25 });
+  add(1, 'Incline Dumbbell Curl',       { sets: 2, repMin: 8,  repMax: 10, wMin: 12, wMax: 12, repCap: 12 }, { weightStep: 1.25 });
+  add(1, 'Dumbbell Hammer Curl',        { sets: 3, repMin: 10, repMax: 12, wMin: 10, wMax: 12.5, repCap: 12 }, { weightStep: 1.25 });
   // Trimmed for the 3-day consolidation (session was getting long once
   // T-Bar Row was added). Retired, not deleted — history preserved below.
   add(1, 'Cable Straight-Arm Pulldown', { sets: 3, repMin: 12, repMax: 15, wMin: 25, wMax: 25, repCap: 15 },
     { progressionType: 'reps', notation: 'form-focus / hold', weightStep: 2.5, archived: true });
-  add(1, 'Behind-the-Back Finger Curls',{ sets: 2, repMin: 15, repMax: 15, wMin: 35, wMax: 35, repCap: 15 },
-    { progressionType: 'reps', weightStep: 2.5, archived: true });
-  // Retired from the old Day 4 — biceps volume already covered by Incline
-  // DB Curl + Hammer Curl. History preserved.
-  addArchived(4, 1, 'Reverse Curl', { sets: 3, repMin: 12, repMax: 12, wMin: 10, wMax: 10, repCap: 12 }, { weightStep: 1.25 });
-  addArchived(4, 1, 'Cable Biceps Curl', { sets: 3, repMin: 15, repMax: 15, wMin: 25, wMax: 25, repCap: 15 }, { weightStep: 2.5 });
-  addArchived(4, 1, 'Neutral-Grip Row Machine', { sets: 3, repMin: 12, repMax: 12, wMin: 45, wMax: 45, repCap: 12 },
-    { weightStep: 2.5, notation: 'data note: logged as a Low Rows substitute, not true neutral-grip row performance' });
+  add(1, 'Behind-the-Back Finger Curls',{ sets: 2, repMin: 12, repMax: 15, wMin: 40, wMax: 40, repCap: 15 },
+    { progressionType: 'reps', weightStep: 2.5 });
 
   // ── DAY 2 · PUSH ────────────────────────────────────────────
   // Calibration: no starting weight — the first logged top set becomes the
@@ -816,11 +811,12 @@ Object.assign(window, {
   add(2, 'Seated Dumbbell Shoulder Press',  { sets: 3, repMin: 9,  repMax: 10, wMin: 20,   wMax: 20,  repCap: 12 }, { weightStep: 1.25 });
   add(2, 'Machine Chest Fly (Pec Deck)',    { sets: 3, repMin: 15, repMax: 15, wMin: 45,   wMax: 45,  repCap: 15 }, { weightStep: 2.5 });
   add(2, 'Overhead Triceps Extension',      { sets: 3, repMin: 10, repMax: 12, wMin: 57,   wMax: 57,   repCap: 12 }, { weightStep: 2.5 });
-  add(2, 'Incline Cable Fly (low-to-high)', { sets: 3, repMin: 12, repMax: 15, wMin: 35,   wMax: 35,   repCap: 15 }, { weightStep: 2.5 });
   add(2, 'Lateral Raise',                   { sets: 4, repMin: 13, repMax: 15, wMin: 8,    wMax: 8,    repCap: 15 }, { weightStep: 1.25 });
-  // New, folded in from the retired Day 4 — front delt was under-trained
-  // relative to side/rear delt work.
-  add(2, 'Cable Front Raise',               { sets: 3, repMin: 12, repMax: 15, wMin: 10,   wMax: 10,   repCap: 15 }, { weightStep: 1.25 });
+  add(2, 'Dumbbell Pronation Rotations',    { sets: 3, repMin: 15, repMax: 20, wMin: 0,    wMax: 0,    repCap: 20 },
+    { notation: 'per arm · light load', unit: '', progressionType: 'reps', weightStep: 1.25 });
+  // Removed in Workout 6.0 restructure — history preserved.
+  add(2, 'Incline Cable Fly (low-to-high)', { sets: 3, repMin: 12, repMax: 15, wMin: 35,   wMax: 35,   repCap: 15 }, { weightStep: 2.5, archived: true });
+  add(2, 'Cable Front Raise',               { sets: 3, repMin: 12, repMax: 15, wMin: 10,   wMax: 10,   repCap: 15 }, { weightStep: 1.25, archived: true });
   // Trimmed for the 3-day consolidation (redundant chest/triceps isolation
   // once session volume was reviewed). Retired, not deleted.
   add(2, 'Lower Chest Cable Fly',           { sets: 3, repMin: 15, repMax: 15, wMin: 12.5, wMax: 12.5, repCap: 15 }, { weightStep: 2.5, archived: true });
@@ -830,32 +826,24 @@ Object.assign(window, {
   add(2, 'Incline Dumbbell Press',    { sets: 3, repMin: 8,  repMax: 10, wMin: 22.5, wMax: 22.5, repCap: 12 }, { weightStep: 1.25, archived: true });
   add(2, 'Flat Dumbbell Bench Press', { sets: 3, repMin: 12, repMax: 15, wMin: 20,   wMax: 20,   repCap: 15 }, { weightStep: 1.25, archived: true });
   add(2, 'Cable Triceps Pushdown',    { sets: 3, repMin: 10, repMax: 12, wMin: 35,   wMax: 37.5, repCap: 12 }, { weightStep: 2.5, archived: true });
-  // Retired from the old Day 4 — redundant with Machine Chest Fly + Incline
-  // Cable Fly / with Overhead Triceps Extension. History preserved.
-  addArchived(4, 2, 'Cable Fly', { sets: 3, repMin: 15, repMax: 15, wMin: 10, wMax: 10, repCap: 15 }, { weightStep: 2.5 });
-  addArchived(4, 2, 'Close-Grip Bench Press', { sets: 3, repMin: 10, repMax: 11, wMin: 35, wMax: 37.5, repCap: 12 }, { weightStep: 2.5 });
-  addArchived(4, 2, 'Flat Dumbbell Bench Press', { sets: 3, repMin: 10, repMax: 12, wMin: 20, wMax: 22.5, repCap: 12 }, { weightStep: 1.25 });
-  addArchived(4, 2, 'Lateral Raise', { sets: 3, repMin: 15, repMax: 15, wMin: 7.5, wMax: 7.5, repCap: 15 }, { weightStep: 1.25 });
 
   // ── DAY 3 · LEGS + CORE ─────────────────────────────────────
-  add(3, 'Leg Press',           { sets: 4, repMin: 10, repMax: 11, wMin: 70, wMax: 70, repCap: 12 }, { notation: 'per side', weightStep: 2.5 });
+  add(3, 'Leg Press',           { sets: 5, repMin: 10, repMax: 11, wMin: 70, wMax: 70, repCap: 12 }, { notation: 'per side', weightStep: 2.5 });
   add(3, 'Lying Leg Curl',      { sets: 4, repMin: 12, repMax: 14, wMin: 55, wMax: 55, repCap: 15 }, { weightStep: 2.5 });
   add(3, 'Bulgarian Split Squat', { sets: 3, repMin: 8,  repMax: 10, wMin: 10, wMax: 10, repCap: 10 },
     { notation: 'per leg · dumbbell in one hand', weightStep: 1.25 });
-  add(3, 'Hip Adduction',       { sets: 4, repMin: 13, repMax: 15, wMin: 40, wMax: 40, repCap: 15 }, { weightStep: 2.5 });
   // Pelvic-caution: progressionType 'reps' suppresses auto weight-increase
   // suggestions entirely (the app has no cross-session confirmation gate —
   // "increase only after a pain-free following session" is not enforced by
   // code, just called out here and in-app via notation; apply manually).
-  // Cut more aggressively than other Day 3 movements for the return from
-  // layoff, given the pelvic injury history and elevated re-injury risk
-  // after time off.
-  add(3, 'Glute Bridge Machine', { sets: 3, repMin: 12, repMax: 15, wMin: 15, wMax: 15, repCap: 15 },
-    { progressionType: 'reps', notation: 'pelvic-caution — confirm pain-free next session before increasing load', weightStep: 2.5 });
-  add(3, 'Hip Abduction',       { sets: 2, repMin: 15, repMax: 15, wMin: 60, wMax: 60, repCap: 15 }, { weightStep: 2.5 });
-  add(3, 'Standing Calf Raise', { sets: 3, repMin: 15, repMax: 15, wMin: 62, wMax: 62, repCap: 15 }, { weightStep: 2.5 });
+  add(3, 'Glute Bridge Machine', { sets: 2, repMin: 12, repMax: 15, wMin: 15, wMax: 15, repCap: 15 },
+    { progressionType: 'reps', notation: 'pelvic-caution', weightStep: 2.5 });
+  add(3, 'Hip Adduction',       { sets: 3, repMin: 13, repMax: 15, wMin: 40, wMax: 40, repCap: 15 }, { weightStep: 2.5 });
+  add(3, 'Standing Calf Raise', { sets: 4, repMin: 15, repMax: 15, wMin: 62, wMax: 62, repCap: 15 }, { weightStep: 2.5 });
   add(3, 'Dead Bug',            { sets: 3, repMin: 10, repMax: 10, wMin: 0,  wMax: 0,  repCap: 12 },
     { notation: 'per side · bodyweight', unit: '', progressionType: 'reps' });
+  // Removed from active view — history preserved.
+  add(3, 'Hip Abduction',       { sets: 2, repMin: 15, repMax: 15, wMin: 60, wMax: 60, repCap: 15 }, { weightStep: 2.5, archived: true });
   // Trimmed for session length on the return from layoff — redundant with
   // Dead Bug's anti-extension core work, and the most skippable of Day 3's
   // three core/carry movements for a fat-loss/recomp goal (rotational
@@ -863,24 +851,52 @@ Object.assign(window, {
   // the injury history). Retired, not deleted — history preserved.
   add(3, 'Cable Woodchop',      { sets: 3, repMin: 13, repMax: 13, wMin: 15, wMax: 15, repCap: 15 },
     { notation: 'per side · form-focus / hold', progressionType: 'reps', weightStep: 2.5, archived: true });
-  add(3, "Farmer's Walk",       { sets: 3, repMin: 3,  repMax: 3,  wMin: 60, wMax: 60,    repCap: 5 },
-    { notation: 'per hand', repUnit: 'laps', progressionType: 'reps', weightStep: 1.25 });
-  // Retired — history preserved, hidden from active views. Not used to seed
-  // Glute Bridge Machine or Bulgarian Split Squat's starting numbers.
+  add(3, "Farmer's Walk",       { sets: 3, repMin: 1,  repMax: 1,  wMin: 60, wMax: 60,    repCap: 3 },
+    { notation: 'per hand', repUnit: 'lap', progressionType: 'reps', weightStep: 1.25 });
+  // Retired — history preserved, hidden from active views.
   add(3, 'Romanian Deadlift', { sets: 3, repMin: 12, repMax: 12, wMin: 62.5, wMax: 62.5, repCap: 12 }, { weightStep: 2.5, archived: true });
   add(3, 'Leg Extension',     { sets: 3, repMin: 12, repMax: 12, wMin: 100, wMax: 100, repCap: 12 }, { weightStep: 2.5, archived: true });
-  // Retired from the old Day 4 — hamstring/glute already covered by Lying
-  // Leg Curl + Glute Bridge Machine; dropped for session-length efficiency
-  // on 3 days/week. Nordic Curl, Cable Glute Kickback, Standing Dual-Cable
-  // Curl, and Flat Barbell Bench Press had no logged history under Workout
-  // 5.0 (deployed just before this consolidation) and were dropped outright
-  // rather than archived — there was nothing to preserve.
+
+  // ── DAY 4 · UPPER ───────────────────────────────────────────
+  // Re-activated in Workout 6.0 as a 4th training day. Week A leads with
+  // Flat Barbell Bench Press; Week B leads with Low Rows.
+  add(4, 'Flat Barbell Bench Press',  { sets: 3, repMin: 6,  repMax: 10, wMin: 27.5, wMax: 30, repCap: 10 },
+    { notation: 'per side · estimate', weightStep: 2.5 });
+  add(4, 'Low Rows',                  { sets: 3, repMin: 10, repMax: 12, wMin: 50,   wMax: 50, repCap: 12 }, { weightStep: 2.5 });
+  add(4, 'Close-Grip Bench Press',    { sets: 3, repMin: 8,  repMax: 10, wMin: 35,   wMax: 37.5, repCap: 10 }, { weightStep: 2.5 });
+  add(4, 'Standing Dual-Cable Curl',  { sets: 3, repMin: 10, repMax: 13, wMin: 9,    wMax: 11, repCap: 13 },
+    { notation: 'per arm · estimate', weightStep: 1.25 });
+  add(4, 'Cable Lateral Raise',       { sets: 3, repMin: 12, repMax: 15, wMin: 0,    wMax: 0,  repCap: 15 },
+    { calibration: true, weightStep: 1.25 });
+  add(4, 'Nordic Curl (assisted)',    { sets: 2, repMin: 5,  repMax: 8,  wMin: 0,    wMax: 0,  repCap: 8  },
+    { notation: 'top-third range only · pelvic caution', unit: '', progressionType: 'reps' });
+  add(4, 'Cable Glute Kickback',      { sets: 3, repMin: 12, repMax: 15, wMin: 4,    wMax: 5,  repCap: 15 },
+    { notation: 'per leg · estimate', weightStep: 1.25 });
+  // Previous Day 4 exercises — retired, history preserved.
+  add(4, 'Reverse Curl',              { sets: 3, repMin: 12, repMax: 12, wMin: 10,   wMax: 10, repCap: 12 }, { weightStep: 1.25, archived: true });
+  add(4, 'Cable Biceps Curl',         { sets: 3, repMin: 15, repMax: 15, wMin: 25,   wMax: 25, repCap: 15 }, { weightStep: 2.5, archived: true });
+  add(4, 'Neutral-Grip Row Machine',  { sets: 3, repMin: 12, repMax: 12, wMin: 45,   wMax: 45, repCap: 12 },
+    { weightStep: 2.5, notation: 'data note: logged as a Low Rows substitute', archived: true });
+  add(4, 'Cable Fly',                 { sets: 3, repMin: 15, repMax: 15, wMin: 10,   wMax: 10, repCap: 15 }, { weightStep: 2.5, archived: true });
+  add(4, 'Flat Dumbbell Bench Press', { sets: 3, repMin: 10, repMax: 12, wMin: 20,   wMax: 22.5, repCap: 12 }, { weightStep: 1.25, archived: true });
+  add(4, 'Lateral Raise',             { sets: 3, repMin: 15, repMax: 15, wMin: 7.5,  wMax: 7.5, repCap: 15 }, { weightStep: 1.25, archived: true });
 
   // ── Expose ──────────────────────────────────────────────────
   window.SEED_STORE = {
     days,
     sessions: {},   // filled by mergeSeedHistory()
-    notes: {},
+    notes: {
+      [cryptoId('d1_Low Rows')]:                   { text: 'dead hang 10–30 sec during rest periods',                           seedNote: true },
+      [cryptoId('d1_Face Pull')]:                  { text: 'form-focus hold — do not increase load',                            seedNote: true },
+      [cryptoId('d1_Behind-the-Back Finger Curls')]: { text: 'rest 60–90 sec between sets',                                    seedNote: true },
+      [cryptoId('d2_Dumbbell Pronation Rotations')]: { text: 'controlled tempo — targets pronator teres',                       seedNote: true },
+      [cryptoId("d3_Farmer's Walk")]:              { text: 'progress via added weight, not more laps',                          seedNote: true },
+      [cryptoId('d3_Glute Bridge Machine')]:       { text: 'pelvic caution — stop if any discomfort',                           seedNote: true },
+      [cryptoId('d4_Flat Barbell Bench Press')]:   { text: 'estimate — calibrate on first real session and update',             seedNote: true },
+      [cryptoId('d4_Standing Dual-Cable Curl')]:   { text: 'estimate — calibrate on first real session and update',             seedNote: true },
+      [cryptoId('d4_Cable Glute Kickback')]:       { text: 'estimate — calibrate on first real session and update',             seedNote: true },
+      [cryptoId('d4_Nordic Curl (assisted)')]:     { text: 'pelvic caution — top-third range only, stop if any discomfort',     seedNote: true },
+    },
     archive: [],
   };
 })();
@@ -2757,7 +2773,7 @@ const STORAGE_KEY = 'pol_tracker_v1';
 // hardcoded session history) is RECONCILED into whatever is stored: missing
 // exercises are added and missing seeded sessions are merged in by
 // exercise+date, but nothing you've logged is ever overwritten or removed.
-const SEED_VERSION = 8;
+const SEED_VERSION = 9;
 
 // ── Storage layer ─────────────────────────────────────────────
 function loadStore() {
@@ -2771,6 +2787,7 @@ function loadStore() {
     if (!parsed.notes) parsed.notes = {};
     if (!parsed.archive) parsed.archive = [];
     if (!Array.isArray(parsed.removedExerciseIds)) parsed.removedExerciseIds = [];
+    if (!parsed.rotation) parsed.rotation = { 1: { count: 0 }, 2: { count: 0 }, 3: { count: 0 }, 4: { count: 0 } };
     // Intentionally NO version-based wipe here. Stored sessions are kept
     // as-is; reconcileStore() brings in any new seed definitions/history.
     return parsed;
@@ -2792,9 +2809,29 @@ function loadStore() {
 // the stale retired day, one freshly added to its new host day) before this
 // had a chance to remove the stale one. Idempotent — a no-op once the
 // retired day is gone.
-const RETIRED_DAY_IDS = [4]; // Day 4 · UPPER
+const RETIRED_DAY_IDS = []; // Day 4 · UPPER re-activated in Workout 6.0
 function dropRetiredDays(store) {
   store.days = (store.days || []).filter(d => !RETIRED_DAY_IDS.includes(d.id));
+  return store;
+}
+
+// IDs that were previously filed under Day 1/2 as addArchived(4,...) entries.
+// In Workout 6.0 they move back to Day 4. Remove them from Day 1/2 so they
+// don't appear as stale custom exercises there after the version bump.
+const DAY4_MIGRATED_IDS = new Set([
+  cryptoId('d4_Reverse Curl'),
+  cryptoId('d4_Cable Biceps Curl'),
+  cryptoId('d4_Neutral-Grip Row Machine'),
+  cryptoId('d4_Cable Fly'),
+  cryptoId('d4_Close-Grip Bench Press'),
+  cryptoId('d4_Flat Dumbbell Bench Press'),
+  cryptoId('d4_Lateral Raise'),
+]);
+function removeDay4MigratedExercises(store) {
+  store.days = (store.days || []).map(d => {
+    if (d.id !== 1 && d.id !== 2) return d;
+    return { ...d, exercises: (d.exercises || []).filter(e => !DAY4_MIGRATED_IDS.has(e.id)) };
+  });
   return store;
 }
 
@@ -2937,6 +2974,11 @@ function reconcileStore(store) {
   const upgrading = store.seedVersion !== SEED_VERSION;
   applySeedRenames(store); // must run before reconcileDays
   dropRetiredDays(store); // must run before reconcileDays — see comment above
+  if (upgrading) {
+    // Move old addArchived Day 4 exercises out of Days 1/2 before
+    // reconcileDays re-adds them under Day 4.
+    removeDay4MigratedExercises(store);
+  }
   reconcileDays(store);
   // One-time, on a version bump only: align targets (and order/archived
   // flags) with the latest seed so existing installs reflect the new
@@ -2945,6 +2987,19 @@ function reconcileStore(store) {
   if (upgrading) {
     refreshTargetsFromSeed(store);
     resyncExercisesFromSeed(store);
+    // Seed missing standing notes from SEED_STORE.notes.
+    if (!store.notes) store.notes = {};
+    const seedNotes = (typeof SEED_STORE !== 'undefined' && SEED_STORE.notes) ? SEED_STORE.notes : {};
+    for (const [id, sn] of Object.entries(seedNotes)) {
+      if (!store.notes[id]) {
+        store.notes[id] = { text: sn.text, savedAt: new Date().toISOString() };
+      }
+    }
+    // Init rotation counters if missing or if Day 4 was just re-added.
+    if (!store.rotation) store.rotation = {};
+    for (const dayId of [1, 2, 3, 4]) {
+      if (!store.rotation[dayId]) store.rotation[dayId] = { count: 0 };
+    }
   }
   if (typeof mergeSeedHistory === 'function') mergeSeedHistory(store);
   store.seedVersion = SEED_VERSION;
@@ -2967,6 +3022,7 @@ function freshStore() {
     archive: [],
   };
   if (!Array.isArray(base.removedExerciseIds)) base.removedExerciseIds = [];
+  if (!base.rotation) base.rotation = { 1: { count: 0 }, 2: { count: 0 }, 3: { count: 0 }, 4: { count: 0 } };
   // Seed the hardcoded session history onto the fresh routine.
   return reconcileStore(base);
 }
@@ -3056,6 +3112,10 @@ function App() {
   // resets on day switch, the "New session" button, or an actual tab close.
   const [doneIds, setDoneIds] = useState(() => readDoneIds());
 
+  // Rotation — tracks whether we've incremented this day's session count
+  // for the current browser visit. Resets whenever the active day changes.
+  const rotationCountedRef = useRef(false);
+
   // Apply an update to doneIds and mirror it to sessionStorage in lockstep.
   const updateDoneIds = (next) => {
     setDoneIds(prev => {
@@ -3123,6 +3183,7 @@ function App() {
   useEffect(() => {
     setTopBarHidden(false);
     window.scrollTo(0, 0);
+    rotationCountedRef.current = false;
     if (isInitialDayRender.current) {
       isInitialDayRender.current = false;
       return;
@@ -3161,21 +3222,31 @@ function App() {
     const isBw = ex.unit === '' && ex.weightMin === 0 && ex.weightMax === 0;
     const shouldCalibrate = ex.calibration && isFirstEverSession && !isBw;
     const baseline = shouldCalibrate ? roundToStep(maxWeight(sets), ex.weightStep || 5) : null;
-    setStore(s => ({
-      ...s,
-      sessions: {
-        ...s.sessions,
-        [exId]: [...(s.sessions[exId] || []), entry],
-      },
-      days: shouldCalibrate
-        ? s.days.map(d => ({
-            ...d,
-            exercises: d.exercises.map(e => e.id === exId
-              ? { ...e, calibration: false, weightMin: baseline, weightMax: baseline }
-              : e),
-          }))
-        : s.days,
-    }));
+    // Increment this day's rotation counter on the first log of each visit.
+    const willCountRotation = !rotationCountedRef.current;
+    if (willCountRotation) rotationCountedRef.current = true;
+    setStore(s => {
+      const rot = s.rotation || {};
+      const dayRot = rot[day.id] || { count: 0 };
+      return {
+        ...s,
+        sessions: {
+          ...s.sessions,
+          [exId]: [...(s.sessions[exId] || []), entry],
+        },
+        days: shouldCalibrate
+          ? s.days.map(d => ({
+              ...d,
+              exercises: d.exercises.map(e => e.id === exId
+                ? { ...e, calibration: false, weightMin: baseline, weightMax: baseline }
+                : e),
+            }))
+          : s.days,
+        rotation: willCountRotation
+          ? { ...rot, [day.id]: { ...dayRot, count: dayRot.count + 1 } }
+          : rot,
+      };
+    });
     updateDoneIds(prev => new Set(prev).add(exId));
   };
 
@@ -3511,6 +3582,37 @@ function App() {
   // resolve their name/unit/target) but never appear in the active list.
   const exercises = day.exercises.filter(ex => !ex.archived);
 
+  // Rotation state — flips every 2 sessions (first log per browser visit).
+  const dayRotCount = ((store.rotation || {})[day.id] || {}).count || 0;
+  const rotFlipped = Math.floor(dayRotCount / 2) % 2 === 1;
+
+  // Build display list: rotation-aware order, with off-week flag for Day 3 core alternation.
+  const displayItems = (() => {
+    const items = exercises.map(ex => ({ ex, offWeek: false }));
+    if (rotFlipped) {
+      if (day.id === 3) {
+        // Swap Leg Press (index 0) and Bulgarian Split Squat (index 2).
+        // Lying Leg Curl stays at index 1 in both versions.
+        if (items.length >= 3) { const t = items[0]; items[0] = items[2]; items[2] = t; }
+      } else if (items.length >= 2) {
+        // Days 1, 2, 4: swap lead exercise and second exercise.
+        const t = items[0]; items[0] = items[1]; items[1] = t;
+      }
+    }
+    // Day 3: Dead Bug / Farmer's Walk alternate each session.
+    // Week A (not flipped) → Dead Bug active, Farmer's Walk greyed.
+    // Week B (flipped)     → Farmer's Walk active, Dead Bug greyed.
+    if (day.id === 3) {
+      const deadBugId = cryptoId('d3_Dead Bug');
+      const farmersId = cryptoId("d3_Farmer's Walk");
+      items.forEach(item => {
+        if (item.ex.id === deadBugId && rotFlipped)  item.offWeek = true;
+        if (item.ex.id === farmersId  && !rotFlipped) item.offWeek = true;
+      });
+    }
+    return items;
+  })();
+
   return (
     <div className="app-scroll">
       {/* Sticky header. The whole header slides up by the hide-group's
@@ -3588,6 +3690,21 @@ function App() {
             }}>
               {day.subtitle}
             </div>
+            {displayItems.length >= 2 && (
+              <div style={{
+                marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6,
+                background: rotFlipped ? 'rgba(46,113,114,0.10)' : 'var(--card-bg)',
+                border: '0.5px solid rgba(0,0,0,0.07)', borderRadius: 6,
+                padding: '4px 9px',
+              }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--muted)', textTransform: 'uppercase' }}>
+                  {rotFlipped ? 'Week B · leading with' : 'Week A · leading with'}
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em', color: 'var(--accent)', fontWeight: 700 }}>
+                  {displayItems[0].ex.name}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -3657,23 +3774,31 @@ function App() {
         )}
         {!editMode && (
         <div style={{ padding: '16px 14px 0' }}>
-        {exercises.map(ex => {
+        {displayItems.map(({ ex, offWeek }) => {
           // Notes shape may be legacy array (sessionized) — normalize to {text, savedAt}
           const rawNote = store.notes && store.notes[ex.id];
           const note = Array.isArray(rawNote)
             ? (rawNote.length ? { text: rawNote[rawNote.length - 1].text, savedAt: rawNote[rawNote.length - 1].date } : null)
             : (rawNote && rawNote.text ? rawNote : null);
           return (
-            <ExerciseCard
-              key={ex.id}
-              ex={ex}
-              history={store.sessions[ex.id] || []}
-              note={note}
-              done={doneIds.has(ex.id)}
-              onOpenLive={(exId, rect) => setLiveEx({ exId, originRect: rect })}
-              onSaveNote={saveExerciseNote}
-              onDeleteNote={deleteExerciseNote}
-            />
+            <div key={ex.id} style={offWeek ? { opacity: 0.35, pointerEvents: 'none', position: 'relative' } : {}}>
+              {offWeek && (
+                <div style={{
+                  position: 'absolute', top: 10, right: 16, zIndex: 1,
+                  fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em',
+                  textTransform: 'uppercase', color: 'var(--muted)',
+                }}>Not this week</div>
+              )}
+              <ExerciseCard
+                ex={ex}
+                history={store.sessions[ex.id] || []}
+                note={note}
+                done={doneIds.has(ex.id)}
+                onOpenLive={(exId, rect) => setLiveEx({ exId, originRect: rect })}
+                onSaveNote={saveExerciseNote}
+                onDeleteNote={deleteExerciseNote}
+              />
+            </div>
           );
         })}
         </div>
