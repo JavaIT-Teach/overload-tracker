@@ -789,11 +789,6 @@ Object.assign(window, {
   add(1, 'Incline Chest-Supported T-Bar Row', { sets: 3, repMin: 8, repMax: 10, wMin: 36, wMax: 36, repCap: 10 },
     { weightStep: 2.5 });
   add(1, 'Rear Delt Fly Machine',       { sets: 3, repMin: 15, repMax: 15, wMin: 32.5, wMax: 40, repCap: 15 }, { weightStep: 2.5 });
-  // Form-focus / hold: progressionType 'reps' means hitting the rep ceiling
-  // never auto-suggests a weight-range increase (manually clear via the
-  // Edit-mode progression-type toggle when ready to resume normal loading).
-  add(1, 'Face Pull',                   { sets: 3, repMin: 15, repMax: 15, wMin: 50, wMax: 50, repCap: 15 },
-    { progressionType: 'reps', notation: 'form-focus / hold', weightStep: 2.5 });
   add(1, 'Incline Dumbbell Curl',       { sets: 2, repMin: 8,  repMax: 10, wMin: 12, wMax: 12, repCap: 12 }, { weightStep: 1.25 });
   add(1, 'Dumbbell Hammer Curl',        { sets: 3, repMin: 10, repMax: 12, wMin: 10, wMax: 12.5, repCap: 12 }, { weightStep: 1.25 });
   // Trimmed for the 3-day consolidation (session was getting long once
@@ -802,12 +797,19 @@ Object.assign(window, {
     { progressionType: 'reps', notation: 'form-focus / hold', weightStep: 2.5, archived: true });
   add(1, 'Behind-the-Back Finger Curls',{ sets: 2, repMin: 12, repMax: 15, wMin: 40, wMax: 40, repCap: 15 },
     { progressionType: 'reps', weightStep: 2.5 });
+  add(1, 'Triceps Pushdown',            { sets: 3, repMin: 10, repMax: 15, wMin: 20, wMax: 25, repCap: 15 },
+    { notation: 'arm at side · estimate', weightStep: 2.5 });
+  // Removed — retired, not deleted, history preserved.
+  add(1, 'Face Pull',                   { sets: 3, repMin: 15, repMax: 15, wMin: 50, wMax: 50, repCap: 15 },
+    { progressionType: 'reps', notation: 'form-focus / hold', weightStep: 2.5, archived: true });
 
   // ── DAY 2 · PUSH ────────────────────────────────────────────
   // Calibration: no starting weight — the first logged top set becomes the
   // baseline (see logSession()); no target is shown until then.
   add(2, 'Incline Barbell Press',           { sets: 3, repMin: 6,  repMax: 10, wMin: 25,   wMax: 25,  repCap: 10 },
     { weightStep: 2.5 });
+  add(2, 'Decline Cable Fly',              { sets: 3, repMin: 12, repMax: 15, wMin: 10,   wMax: 12.5, repCap: 15 },
+    { notation: 'lower chest angle · estimate', weightStep: 2.5 });
   add(2, 'Seated Dumbbell Shoulder Press',  { sets: 3, repMin: 9,  repMax: 10, wMin: 20,   wMax: 20,  repCap: 12 }, { weightStep: 1.25 });
   add(2, 'Machine Chest Fly (Pec Deck)',    { sets: 3, repMin: 15, repMax: 15, wMin: 45,   wMax: 45,  repCap: 15 }, { weightStep: 2.5 });
   add(2, 'Overhead Triceps Extension',      { sets: 3, repMin: 10, repMax: 12, wMin: 57,   wMax: 57,   repCap: 12 }, { weightStep: 2.5 });
@@ -866,8 +868,10 @@ Object.assign(window, {
   add(4, 'Close-Grip Bench Press',    { sets: 3, repMin: 8,  repMax: 10, wMin: 35,   wMax: 37.5, repCap: 10 }, { weightStep: 2.5 });
   add(4, 'Standing Dual-Cable Curl',  { sets: 3, repMin: 10, repMax: 13, wMin: 9,    wMax: 11, repCap: 13 },
     { notation: 'per arm · estimate', weightStep: 1.25 });
+  add(4, 'Standing Calf Raise',       { sets: 4, repMin: 15, repMax: 15, wMin: 65,   wMax: 70, repCap: 15 },
+    { weightStep: 2.5 });
   add(4, 'Cable Lateral Raise',       { sets: 3, repMin: 12, repMax: 15, wMin: 0,    wMax: 0,  repCap: 15 },
-    { calibration: true, weightStep: 1.25 });
+    { calibration: true, weightStep: 1.25, archived: true });
   add(4, 'Nordic Curl (assisted)',    { sets: 2, repMin: 5,  repMax: 8,  wMin: 0,    wMax: 0,  repCap: 8  },
     { notation: 'top-third range only · pelvic caution', unit: '', progressionType: 'reps' });
   add(4, 'Cable Glute Kickback',      { sets: 3, repMin: 12, repMax: 15, wMin: 4,    wMax: 5,  repCap: 15 },
@@ -896,6 +900,8 @@ Object.assign(window, {
       [cryptoId('d4_Standing Dual-Cable Curl')]:   { text: 'estimate — calibrate on first real session and update',             seedNote: true },
       [cryptoId('d4_Cable Glute Kickback')]:       { text: 'estimate — calibrate on first real session and update',             seedNote: true },
       [cryptoId('d4_Nordic Curl (assisted)')]:     { text: 'pelvic caution — top-third range only, stop if any discomfort',     seedNote: true },
+      [cryptoId('d1_Triceps Pushdown')]:           { text: 'arm at side — targets short and lateral triceps heads, estimate',       seedNote: true },
+      [cryptoId('d2_Decline Cable Fly')]:          { text: 'lower chest angle — fills gap not covered by incline, flat, or mid-pec work, estimate', seedNote: true },
     },
     archive: [],
   };
@@ -2773,7 +2779,7 @@ const STORAGE_KEY = 'pol_tracker_v1';
 // hardcoded session history) is RECONCILED into whatever is stored: missing
 // exercises are added and missing seeded sessions are merged in by
 // exercise+date, but nothing you've logged is ever overwritten or removed.
-const SEED_VERSION = 9;
+const SEED_VERSION = 10;
 
 // ── Storage layer ─────────────────────────────────────────────
 function loadStore() {
