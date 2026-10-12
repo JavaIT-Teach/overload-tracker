@@ -225,7 +225,7 @@ function App() {
   };
 
   // ── Mutations ────────────────────────────────────────────────
-  const logSession = (exId, { sets, note, summary }, statusAtLog) => {
+  const logSession = (exId, { sets, note, clusterMode }, statusAtLog) => {
     const ex = findEx(store, exId);
     if (!ex) return;
     const entry = {
@@ -235,7 +235,7 @@ function App() {
       status: statusAtLog,
       unit: ex.unit,
       target: targetString(ex),
-      summary: summary || null,
+      clusterMode: clusterMode || false,
     };
     setStore(s => ({
       ...s,
@@ -421,6 +421,7 @@ function App() {
       unit: 'lbs',
       notation: null,
       repUnit: 'reps',
+      restSeconds: 30,
     };
     updateDays(days => days.map(d => d.id === dayId ? {
       ...d, exercises: [...d.exercises, blank],
@@ -720,8 +721,6 @@ function App() {
             onClose={() => setLiveEx(null)}
             onLog={logSession}
             onApplyIncrement={applyIncrement}
-            onUpdateRange={updateWeightRange}
-            onPlateauChoice={logPlateauChoice}
             onSaveNote={saveExerciseNote}
             onDeleteNote={deleteExerciseNote}
             onAddCustomWeight={addCustomWeight}
@@ -831,11 +830,18 @@ function buildDateEmail(store, dateKey) {
     lines.push(`Day ${g.day.id} · ${g.day.name}`);
     for (const { ex, session } of g.items) {
       lines.push(ex.name);
-      const setStr = session.sets.map(st => (
-        ex.unit === ''
-          ? `${st.reps} ${ex.repUnit || 'reps'}`
-          : `${st.reps}×${fmt(st.weight)}${ex.unit ? ' ' + ex.unit : ''}`
-      )).join(', ');
+      let setStr;
+      if (session.clusterMode && session.sets.length) {
+        const w = session.sets[0].weight;
+        const repsStr = session.sets.map(s => s.reps).join(' · ');
+        setStr = ex.unit === '' ? repsStr : `${fmt(w)}${ex.unit ? ' ' + ex.unit : ''}: ${repsStr}`;
+      } else {
+        setStr = session.sets.map(st => (
+          ex.unit === ''
+            ? `${st.reps} ${ex.repUnit || 'reps'}`
+            : `${st.reps}×${fmt(st.weight)}${ex.unit ? ' ' + ex.unit : ''}`
+        )).join(', ');
+      }
       lines.push(`  ${setStr}`);
       if (session.note) lines.push(`  Note: "${session.note}"`);
     }
