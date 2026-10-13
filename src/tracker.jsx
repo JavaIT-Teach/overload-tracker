@@ -1290,5 +1290,5 @@ function HistoryView({ history, ex }) {
 Object.assign(window, {
   StatusBadge, HairlineHeading, ChoiceRow, Stepper,
   ClusterLoggingPanel, PlainLoggingPanel, SummaryCard,
-  ExerciseCard, HistoryView, ExerciseNote,
+  ExerciseCard, LiveExerciseView, HistoryView, ExerciseNote,
 });
