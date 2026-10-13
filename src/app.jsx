@@ -7,7 +7,7 @@ const STORAGE_KEY = 'pol_tracker_v1';
 // hardcoded session history) is RECONCILED into whatever is stored: missing
 // exercises are added and missing seeded sessions are merged in by
 // exercise+date, but nothing you've logged is ever overwritten or removed.
-const SEED_VERSION = 4;
+const SEED_VERSION = 10;
 
 // ── Storage layer ─────────────────────────────────────────────
 function loadStore() {
@@ -20,6 +20,8 @@ function loadStore() {
     if (!parsed.sessions) parsed.sessions = {};
     if (!parsed.notes) parsed.notes = {};
     if (!parsed.archive) parsed.archive = [];
+    if (!Array.isArray(parsed.removedExerciseIds)) parsed.removedExerciseIds = [];
+    if (!parsed.rotation) parsed.rotation = { 1: { count: 0 }, 2: { count: 0 }, 3: { count: 0 }, 4: { count: 0 } };
     // Intentionally NO version-based wipe here. Stored sessions are kept
     // as-is; reconcileStore() brings in any new seed definitions/history.
     return parsed;
@@ -29,20 +31,64 @@ function loadStore() {
   }
 }
 
+// Drop a day that's been retired from the seed entirely (rather than just
+// reordered/re-exercised) — e.g. Day 4 · UPPER, removed in the Aug 2026
+// consolidation from a 4-day PULL/PUSH/LEGS/UPPER split down to a 3-day
+// PULL/PUSH/LEGS split (training frequency dropped to 3x/week). Session and
+// note data is keyed by exercise id, not by day, so nothing is deleted —
+// those exercises' history remains resolvable via whichever live day now
+// hosts an archived copy of their definition (see addArchived() in
+// seed.js). Must run BEFORE reconcileDays, otherwise reconcileDays would
+// add a second copy of each migrated exercise id (one already sitting in
+// the stale retired day, one freshly added to its new host day) before this
+// had a chance to remove the stale one. Idempotent — a no-op once the
+// retired day is gone.
+const RETIRED_DAY_IDS = []; // Day 4 · UPPER re-activated in Workout 6.0
+function dropRetiredDays(store) {
+  store.days = (store.days || []).filter(d => !RETIRED_DAY_IDS.includes(d.id));
+  return store;
+}
+
+// IDs that were previously filed under Day 1/2 as addArchived(4,...) entries.
+// In Workout 6.0 they move back to Day 4. Remove them from Day 1/2 so they
+// don't appear as stale custom exercises there after the version bump.
+const DAY4_MIGRATED_IDS = new Set([
+  cryptoId('d4_Reverse Curl'),
+  cryptoId('d4_Cable Biceps Curl'),
+  cryptoId('d4_Neutral-Grip Row Machine'),
+  cryptoId('d4_Cable Fly'),
+  cryptoId('d4_Close-Grip Bench Press'),
+  cryptoId('d4_Flat Dumbbell Bench Press'),
+  cryptoId('d4_Lateral Raise'),
+]);
+function removeDay4MigratedExercises(store) {
+  store.days = (store.days || []).map(d => {
+    if (d.id !== 1 && d.id !== 2) return d;
+    return { ...d, exercises: (d.exercises || []).filter(e => !DAY4_MIGRATED_IDS.has(e.id)) };
+  });
+  return store;
+}
+
 // Ensure every seed day/exercise exists in the store WITHOUT touching any
 // exercise that's already there (so user-progressed targets are preserved).
+// Exercises the user has deliberately removed (tracked in
+// store.removedExerciseIds) are never re-added by this pass.
 function reconcileDays(store) {
   const seedDays = (typeof SEED_STORE !== 'undefined' && SEED_STORE.days) ? SEED_STORE.days : null;
   if (!seedDays) return store;
+  const removedIds = new Set(store.removedExerciseIds || []);
   const byId = new Map((store.days || []).map(d => [d.id, d]));
   seedDays.forEach(sd => {
     const existing = byId.get(sd.id);
     if (!existing) {
-      store.days.push(JSON.parse(JSON.stringify(sd)));
+      const freshDay = JSON.parse(JSON.stringify(sd));
+      freshDay.exercises = freshDay.exercises.filter(e => !removedIds.has(e.id));
+      store.days.push(freshDay);
       return;
     }
     const haveIds = new Set(existing.exercises.map(e => e.id));
     sd.exercises.forEach(se => {
+      if (removedIds.has(se.id)) return; // deliberately removed — don't resurrect
       if (!haveIds.has(se.id)) existing.exercises.push(JSON.parse(JSON.stringify(se)));
     });
   });
@@ -69,10 +115,90 @@ function refreshTargetsFromSeed(store) {
       e.unit = sd.unit;
       e.notation = sd.notation;
       e.repUnit = sd.repUnit;
+      if (sd.progressionType) e.progressionType = sd.progressionType;
       delete e.plateau; // clear stale plateau flag on refreshed targets
     });
   });
   return store;
+}
+
+// Rebuild each day's exercise ORDER (and archived/calibration flags) from
+// the current seed, on a version bump only. refreshTargetsFromSeed already
+// syncs target numbers for matched IDs but never touches array position or
+// the archived/calibration flags, so a reorder- or archive-only seed change
+// (like Workout 5.0) wouldn't otherwise reach an existing install. Session
+// history (store.sessions) lives outside day.exercises and is never touched
+// here; a genuinely custom exercise (added via "+ Add Exercise", not part of
+// any seed) is kept, appended after the seed-ordered ones. An exercise the
+// user explicitly removed (removedExerciseIds) is not resurrected.
+function resyncExercisesFromSeed(store) {
+  const seedDays = (typeof SEED_STORE !== 'undefined' && SEED_STORE.days) ? SEED_STORE.days : null;
+  if (!seedDays) return store;
+  const removedIds = new Set(store.removedExerciseIds || []);
+  store.days = (store.days || []).map(day => {
+    const seedDay = seedDays.find(sd => sd.id === day.id);
+    if (!seedDay) return day;
+    const seedIds = new Set(seedDay.exercises.map(e => e.id));
+    const custom = (day.exercises || []).filter(e => !seedIds.has(e.id));
+    const ordered = seedDay.exercises
+      .filter(se => !removedIds.has(se.id))
+      .map(se => JSON.parse(JSON.stringify(se)));
+    return { ...day, exercises: [...ordered, ...custom] };
+  });
+  return store;
+}
+
+// ── Seed-rename migration ─────────────────────────────────────
+// When a seed exercise is renamed its cryptoId changes (IDs are derived from
+// name). Add an entry here for every such rename; the migration finds the old
+// exercise in the stored list, re-IDs it in place, merges any sessions/notes
+// that accumulated under either ID, and removes any phantom duplicate that
+// reconcileDays may have already appended.  Runs on every reconcileStore call
+// but is idempotent: after the first pass the old ID is gone, so it's a no-op.
+const SEED_RENAMES = [
+  // Jul 2026: Chest-Supported Row Machine → Low Rows
+  {
+    oldId: cryptoId('d1_Chest-Supported Row Machine'),
+    newId: cryptoId('d1_Low Rows'),
+  },
+];
+
+function applySeedRenames(store) {
+  const isoDay = iso => String(iso).slice(0, 10);
+  for (const { oldId, newId } of SEED_RENAMES) {
+    // 1. Re-ID the exercise in place; track which day it lives in.
+    let targetDay = null;
+    for (const d of (store.days || [])) {
+      for (const e of d.exercises) {
+        if (e.id === oldId) { e.id = newId; targetDay = d; }
+      }
+    }
+    // 2. Remove any phantom duplicate with newId that reconcileDays may have
+    //    previously appended (keep only the first occurrence = the original slot).
+    if (targetDay) {
+      let seen = false;
+      targetDay.exercises = targetDay.exercises.filter(e => {
+        if (e.id !== newId) return true;
+        if (!seen) { seen = true; return true; }
+        return false; // drop phantom
+      });
+    }
+    // 3. Merge sessions: combine old-ID and new-ID arrays, deduplicate by date.
+    const oldSessions = store.sessions[oldId];
+    if (oldSessions) {
+      const existing = store.sessions[newId] || [];
+      const existingDates = new Set(existing.map(s => isoDay(s.date)));
+      const additions = oldSessions.filter(s => !existingDates.has(isoDay(s.date)));
+      store.sessions[newId] = [...existing, ...additions]
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+      delete store.sessions[oldId];
+    }
+    // 4. Transfer notes (if any).
+    if (store.notes && store.notes[oldId] && !store.notes[newId]) {
+      store.notes[newId] = store.notes[oldId];
+      delete store.notes[oldId];
+    }
+  }
 }
 
 // Full non-destructive reconciliation: bring the store up to the current
@@ -80,11 +206,35 @@ function refreshTargetsFromSeed(store) {
 // stamp the version. Safe to run on every load (idempotent).
 function reconcileStore(store) {
   const upgrading = store.seedVersion !== SEED_VERSION;
+  applySeedRenames(store); // must run before reconcileDays
+  dropRetiredDays(store); // must run before reconcileDays — see comment above
+  if (upgrading) {
+    // Move old addArchived Day 4 exercises out of Days 1/2 before
+    // reconcileDays re-adds them under Day 4.
+    removeDay4MigratedExercises(store);
+  }
   reconcileDays(store);
-  // One-time, on a version bump only: align targets with the latest seed so
-  // existing installs reflect the new (June) progression. Never re-runs once
-  // stamped, so any future in-app progression you make is preserved.
-  if (upgrading) refreshTargetsFromSeed(store);
+  // One-time, on a version bump only: align targets (and order/archived
+  // flags) with the latest seed so existing installs reflect the new
+  // progression. Never re-runs once stamped, so any future in-app
+  // progression you make is preserved.
+  if (upgrading) {
+    refreshTargetsFromSeed(store);
+    resyncExercisesFromSeed(store);
+    // Seed missing standing notes from SEED_STORE.notes.
+    if (!store.notes) store.notes = {};
+    const seedNotes = (typeof SEED_STORE !== 'undefined' && SEED_STORE.notes) ? SEED_STORE.notes : {};
+    for (const [id, sn] of Object.entries(seedNotes)) {
+      if (!store.notes[id]) {
+        store.notes[id] = { text: sn.text, savedAt: new Date().toISOString() };
+      }
+    }
+    // Init rotation counters if missing or if Day 4 was just re-added.
+    if (!store.rotation) store.rotation = {};
+    for (const dayId of [1, 2, 3, 4]) {
+      if (!store.rotation[dayId]) store.rotation[dayId] = { count: 0 };
+    }
+  }
   if (typeof mergeSeedHistory === 'function') mergeSeedHistory(store);
   store.seedVersion = SEED_VERSION;
   return store;
@@ -105,6 +255,8 @@ function freshStore() {
     notes: {},
     archive: [],
   };
+  if (!Array.isArray(base.removedExerciseIds)) base.removedExerciseIds = [];
+  if (!base.rotation) base.rotation = { 1: { count: 0 }, 2: { count: 0 }, 3: { count: 0 }, 4: { count: 0 } };
   // Seed the hardcoded session history onto the fresh routine.
   return reconcileStore(base);
 }
@@ -140,6 +292,34 @@ function writePresets(name, arr) {
   }
 }
 
+// ── "Done this visit" storage (sessionStorage, not the main store) ─────
+// doneIds is UI-only — it never affects logged session data — but it's kept
+// in sessionStorage rather than bare React state so it survives an
+// OS-triggered tab reload (e.g. iOS Safari discarding a backgrounded tab
+// under memory pressure), while still resetting on an actual tab/browser
+// close, matching the "New session" UX. Reads/writes are defensive: if
+// sessionStorage is unavailable (some private-browsing modes throw on
+// access) this silently falls back to in-memory-only behavior.
+const DONE_IDS_KEY = 'pol_done_ids';
+
+function readDoneIds() {
+  try {
+    const raw = sessionStorage.getItem(DONE_IDS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function writeDoneIds(idSet) {
+  try {
+    sessionStorage.setItem(DONE_IDS_KEY, JSON.stringify([...idSet]));
+  } catch (e) {
+    // sessionStorage unavailable — doneIds stays in-memory-only for this visit.
+  }
+}
+
 // ── Root app ─────────────────────────────────────────────────
 function App() {
   const [store, setStore] = useState(() => {
@@ -153,10 +333,31 @@ function App() {
   const [editMode, setEditMode] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   // Live Exercise Mode — { exId, originRect } of the tapped card, or null.
   const [liveEx, setLiveEx] = useState(null);
   // Bumped on every preset write so the list re-reads from localStorage.
   const [presetsTick, setPresetsTick] = useState(0);
+
+  // "Done" indicator — UI-only marker for exercises logged this visit. Never
+  // affects logged session data (that's in store.sessions). Backed by
+  // sessionStorage (see readDoneIds/writeDoneIds above) rather than bare
+  // React state so it survives a silent OS-triggered tab reload; still
+  // resets on day switch, the "New session" button, or an actual tab close.
+  const [doneIds, setDoneIds] = useState(() => readDoneIds());
+
+  // Rotation — tracks whether we've incremented this day's session count
+  // for the current browser visit. Resets whenever the active day changes.
+  const rotationCountedRef = useRef(false);
+
+  // Apply an update to doneIds and mirror it to sessionStorage in lockstep.
+  const updateDoneIds = (next) => {
+    setDoneIds(prev => {
+      const resolved = typeof next === 'function' ? next(prev) : next;
+      writeDoneIds(resolved);
+      return resolved;
+    });
+  };
 
   // Auto-hide header on scroll-down, reveal on scroll-up.
   // Direction-based: compares current window.scrollY to previous on every event.
@@ -208,10 +409,20 @@ function App() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Reset to top when switching days
+  // Reset to top when switching days. Effects run after the initial mount
+  // too (not just on subsequent [activeDay] changes) — skip the doneIds
+  // clear on that first run, or a sessionStorage-seeded doneIds (surviving
+  // an OS-triggered tab reload) would get wiped immediately after loading.
+  const isInitialDayRender = useRef(true);
   useEffect(() => {
     setTopBarHidden(false);
     window.scrollTo(0, 0);
+    rotationCountedRef.current = false;
+    if (isInitialDayRender.current) {
+      isInitialDayRender.current = false;
+      return;
+    }
+    updateDoneIds(new Set());
   }, [activeDay]);
 
   // Persist on every change
@@ -237,14 +448,43 @@ function App() {
       target: targetString(ex),
       clusterMode: clusterMode || false,
     };
-    setStore(s => ({
-      ...s,
-      sessions: {
-        ...s.sessions,
-        [exId]: [...(s.sessions[exId] || []), entry],
-      },
-    }));
+    // Calibration: the FIRST-EVER logged session for this exercise sets its
+    // baseline weight range from the actual top set, then clears the flag so
+    // every later session behaves like a normal exercise. No-op for a
+    // bodyweight calibration exercise (nothing to calibrate weight-wise).
+    const isFirstEverSession = !(store.sessions[exId] && store.sessions[exId].length);
+    const isBw = ex.unit === '' && ex.weightMin === 0 && ex.weightMax === 0;
+    const shouldCalibrate = ex.calibration && isFirstEverSession && !isBw;
+    const baseline = shouldCalibrate ? roundToStep(maxWeight(sets), ex.weightStep || 5) : null;
+    // Increment this day's rotation counter on the first log of each visit.
+    const willCountRotation = !rotationCountedRef.current;
+    if (willCountRotation) rotationCountedRef.current = true;
+    setStore(s => {
+      const rot = s.rotation || {};
+      const dayRot = rot[day.id] || { count: 0 };
+      return {
+        ...s,
+        sessions: {
+          ...s.sessions,
+          [exId]: [...(s.sessions[exId] || []), entry],
+        },
+        days: shouldCalibrate
+          ? s.days.map(d => ({
+              ...d,
+              exercises: d.exercises.map(e => e.id === exId
+                ? { ...e, calibration: false, weightMin: baseline, weightMax: baseline }
+                : e),
+            }))
+          : s.days,
+        rotation: willCountRotation
+          ? { ...rot, [day.id]: { ...dayRot, count: dayRot.count + 1 } }
+          : rot,
+      };
+    });
+    updateDoneIds(prev => new Set(prev).add(exId));
   };
+
+  const clearDoneIds = () => updateDoneIds(new Set());
 
   // Stamp a progression marker on the most recent session of an exercise.
   function stampProgression(sessions, exId, marker) {
@@ -262,7 +502,7 @@ function App() {
   // spread); the rep range is unchanged (reps "reset to floor" behaviorally,
   // and stay frozen when the rep cap is reached). Bodyweight: add one rep
   // toward the cap. Clears any plateau flag.
-  const applyIncrement = (exId) => {
+  const applyIncrement = (exId, override) => {
     setStore(s => {
       let marker = null;
       const days = s.days.map(d => ({
@@ -281,8 +521,8 @@ function App() {
             return { ...e, archivedTargets: archive, repMin: nr, repMax: nr, plateau: false };
           }
           const step = incrementFor(e);
-          const nMin = roundToStep(e.weightMin + step, step);
-          const nMax = roundToStep(e.weightMax + step, step);
+          const nMin = (override && Number.isFinite(override.weightMin)) ? override.weightMin : roundToStep(e.weightMin + step, step);
+          const nMax = (override && Number.isFinite(override.weightMax)) ? override.weightMax : roundToStep(e.weightMax + step, step);
           marker = { kind: 'weight', toWeight: nMax };
           return { ...e, archivedTargets: archive, weightMin: nMin, weightMax: nMax, plateau: false };
         }),
@@ -343,11 +583,6 @@ function App() {
     });
   };
 
-  // DELOAD SIGNAL — dismiss the recovery banner until the condition re-arms
-  // (which requires at least one new session to be logged afterwards).
-  const dismissDeload = () => {
-    setStore(s => ({ ...s, deloadDismissedAt: totalSessionCount(s) }));
-  };
   const saveExerciseNote = (exId, text) => {
     setStore(s => ({
       ...s,
@@ -403,11 +638,21 @@ function App() {
       exercises: d.exercises.map(e => e.id === exId ? { ...e, ...patch } : e),
     })));
   };
+  // Removing an exercise drops it from its day AND records the id in
+  // removedExerciseIds so reconcileDays never re-adds it on a future load.
+  // Session/note history for the removed id is left in place (orphaned, not
+  // deleted) — matches the "History will be preserved" confirm copy below.
   const removeEx = (exId) => {
-    updateDays(days => days.map(d => ({
-      ...d,
-      exercises: d.exercises.filter(e => e.id !== exId),
-    })));
+    setStore(s => ({
+      ...s,
+      days: s.days.map(d => ({
+        ...d,
+        exercises: d.exercises.filter(e => e.id !== exId),
+      })),
+      removedExerciseIds: s.removedExerciseIds.includes(exId)
+        ? s.removedExerciseIds
+        : [...s.removedExerciseIds, exId],
+    }));
   };
   const addEx = (dayId) => {
     const blank = {
@@ -415,12 +660,13 @@ function App() {
       name: 'New Exercise',
       sets: 3,
       repMin: 8, repMax: 10,
-      weightMin: 50, weightMax: 50,
+      weightMin: 20, weightMax: 20,
       repCap: 12,
-      weightStep: 5,
-      unit: 'lbs',
+      weightStep: 2.5,
+      unit: 'kg',
       notation: null,
       repUnit: 'reps',
+      progressionType: 'load',
       restSeconds: 30,
     };
     updateDays(days => days.map(d => d.id === dayId ? {
@@ -428,7 +674,8 @@ function App() {
     } : d));
   };
 
-  // DRAG-TO-REORDER — splice the exercises array for a day into a new order.
+  // REORDER — splice the exercises array for a day into a new order (used by
+  // the up/down arrow buttons to swap an exercise with its neighbor).
   // The store saves on every mutation, so the new order persists across reloads.
   const moveExercise = (dayIndex, fromIndex, toIndex) => {
     if (fromIndex === toIndex) return;
@@ -450,6 +697,51 @@ function App() {
       const fresh = freshStore();
       setStore(fresh);
     }
+  };
+
+  // ── History-edit mutations ────────────────────────────────────
+  // Replace the sets array for a specific exercise session on a given date.
+  // Only touches store.sessions[exId]; all other exercises/dates are untouched.
+  const editHistorySets = (exId, dateKey, newSets) => {
+    setStore(s => {
+      const arr = (s.sessions[exId] || []).map(sess =>
+        localDateKey(sess.date) === dateKey ? { ...sess, sets: newSets } : sess
+      );
+      return { ...s, sessions: { ...s.sessions, [exId]: arr } };
+    });
+  };
+
+  // Add a brand-new session entry for an exercise on a past date (the exercise
+  // had no session logged that day originally).
+  const addHistorySession = (exId, dateKey, sets) => {
+    const ex = findEx(store, exId);
+    if (!ex) return;
+    const entry = {
+      date: dateKey + 'T12:00:00.000Z',
+      sets,
+      note: '',
+      status: 'hold',
+      unit: ex.unit,
+      target: targetString(ex),
+      summary: null,
+    };
+    setStore(s => ({
+      ...s,
+      sessions: {
+        ...s.sessions,
+        [exId]: [...(s.sessions[exId] || []), entry],
+      },
+    }));
+  };
+
+  // Remove the session entry for a specific exercise on a given date entirely.
+  const removeHistorySession = (exId, dateKey) => {
+    setStore(s => {
+      const arr = (s.sessions[exId] || []).filter(
+        sess => localDateKey(sess.date) !== dateKey
+      );
+      return { ...s, sessions: { ...s.sessions, [exId]: arr } };
+    });
   };
 
   const importJson = (json) => {
@@ -480,7 +772,7 @@ function App() {
                 weightMax: e.weightMax ?? e.weight ?? 0,
                 repCap: e.repCap ?? 15,
                 weightStep: e.weightStep ?? stepFor(e.name),
-                unit: e.unit ?? 'lbs',
+                unit: e.unit ?? 'kg',
                 notation: e.notation ?? null,
                 repUnit: e.repUnit ?? 'reps',
               };
@@ -521,7 +813,40 @@ function App() {
   };
 
   // ── Render ────────────────────────────────────────────────────
-  const exercises = day.exercises;
+  // Archived exercises stay in day.exercises (so History/Export can still
+  // resolve their name/unit/target) but never appear in the active list.
+  const exercises = day.exercises.filter(ex => !ex.archived);
+
+  // Rotation state — flips every 2 sessions (first log per browser visit).
+  const dayRotCount = ((store.rotation || {})[day.id] || {}).count || 0;
+  const rotFlipped = Math.floor(dayRotCount / 2) % 2 === 1;
+
+  // Build display list: rotation-aware order, with off-week flag for Day 3 core alternation.
+  const displayItems = (() => {
+    const items = exercises.map(ex => ({ ex, offWeek: false }));
+    if (rotFlipped) {
+      if (day.id === 3) {
+        // Swap Leg Press (index 0) and Bulgarian Split Squat (index 2).
+        // Lying Leg Curl stays at index 1 in both versions.
+        if (items.length >= 3) { const t = items[0]; items[0] = items[2]; items[2] = t; }
+      } else if (items.length >= 2) {
+        // Days 1, 2, 4: swap lead exercise and second exercise.
+        const t = items[0]; items[0] = items[1]; items[1] = t;
+      }
+    }
+    // Day 3: Dead Bug / Farmer's Walk alternate each session.
+    // Week A (not flipped) → Dead Bug active, Farmer's Walk greyed.
+    // Week B (flipped)     → Farmer's Walk active, Dead Bug greyed.
+    if (day.id === 3) {
+      const deadBugId = cryptoId('d3_Dead Bug');
+      const farmersId = cryptoId("d3_Farmer's Walk");
+      items.forEach(item => {
+        if (item.ex.id === deadBugId && rotFlipped)  item.offWeek = true;
+        if (item.ex.id === farmersId  && !rotFlipped) item.offWeek = true;
+      });
+    }
+    return items;
+  })();
 
   return (
     <div className="app-scroll">
@@ -550,6 +875,15 @@ function App() {
               color: 'var(--muted)', textTransform: 'uppercase',
             }}>Progressive Overload</div>
             <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
+            <button
+              onClick={() => setShowHistory(true)}
+              className="tap"
+              style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+                color: 'var(--ink-2)', textTransform: 'uppercase',
+                padding: '8px 0',
+              }}
+            >History</button>
             <button
               onClick={() => setShowExport(true)}
               className="tap"
@@ -591,6 +925,21 @@ function App() {
             }}>
               {day.subtitle}
             </div>
+            {displayItems.length >= 2 && (
+              <div style={{
+                marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6,
+                background: rotFlipped ? 'rgba(46,113,114,0.10)' : 'var(--card-bg)',
+                border: '0.5px solid rgba(0,0,0,0.07)', borderRadius: 6,
+                padding: '4px 9px',
+              }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--muted)', textTransform: 'uppercase' }}>
+                  {rotFlipped ? 'Week B · leading with' : 'Week A · leading with'}
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em', color: 'var(--accent)', fontWeight: 700 }}>
+                  {displayItems[0].ex.name}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -642,25 +991,53 @@ function App() {
         transition: 'transform 280ms cubic-bezier(.4,0,.2,1)',
         willChange: 'transform',
       }}>
-        {!editMode && <DeloadBanner store={store} onDismiss={dismissDeload} />}
-        {!editMode && exercises.map(ex => {
+        {!editMode && doneIds.size > 0 && (
+          <button
+            onClick={clearDoneIds}
+            className="tap"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: '100%', height: 40, marginBottom: 16,
+              border: '1px solid var(--hair)', borderRadius: 6,
+              background: 'var(--paper-2)', color: 'var(--ink-2)',
+              fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+            }}
+          >
+            New session
+          </button>
+        )}
+        {!editMode && (
+        <div style={{ padding: '16px 14px 0' }}>
+        {displayItems.map(({ ex, offWeek }) => {
           // Notes shape may be legacy array (sessionized) — normalize to {text, savedAt}
           const rawNote = store.notes && store.notes[ex.id];
           const note = Array.isArray(rawNote)
             ? (rawNote.length ? { text: rawNote[rawNote.length - 1].text, savedAt: rawNote[rawNote.length - 1].date } : null)
             : (rawNote && rawNote.text ? rawNote : null);
           return (
-            <ExerciseCard
-              key={ex.id}
-              ex={ex}
-              history={store.sessions[ex.id] || []}
-              note={note}
-              onOpenLive={(exId, rect) => setLiveEx({ exId, originRect: rect })}
-              onSaveNote={saveExerciseNote}
-              onDeleteNote={deleteExerciseNote}
-            />
+            <div key={ex.id} style={offWeek ? { opacity: 0.35, pointerEvents: 'none', position: 'relative' } : {}}>
+              {offWeek && (
+                <div style={{
+                  position: 'absolute', top: 10, right: 16, zIndex: 1,
+                  fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em',
+                  textTransform: 'uppercase', color: 'var(--muted)',
+                }}>Not this week</div>
+              )}
+              <ExerciseCard
+                ex={ex}
+                history={store.sessions[ex.id] || []}
+                note={note}
+                done={doneIds.has(ex.id)}
+                onOpenLive={(exId, rect) => setLiveEx({ exId, originRect: rect })}
+                onSaveNote={saveExerciseNote}
+                onDeleteNote={deleteExerciseNote}
+              />
+            </div>
           );
         })}
+        </div>
+        )}
 
         {!editMode && (
           <ExportLauncherButton onOpen={() => setShowExport(true)} />
@@ -704,6 +1081,16 @@ function App() {
         />
       )}
 
+      {showHistory && (
+        <HistorySheet
+          store={store}
+          onEditSets={editHistorySets}
+          onAddSession={addHistorySession}
+          onRemoveSession={removeHistorySession}
+          onClose={() => setShowHistory(false)}
+        />
+      )}
+
       {liveEx && (() => {
         const liveExObj = findEx(store, liveEx.exId);
         if (!liveExObj) return null;
@@ -739,44 +1126,6 @@ function findEx(store, exId) {
     if (e) return e;
   }
   return null;
-}
-
-// ── Deload signal banner ──────────────────────────────────────
-// Surfaces when ≥3 distinct exercises across all four days show a downward
-// rep trend (same weight, fewer reps) over their last two sessions.
-// Dismissible; re-arms only after a new session is logged.
-function DeloadBanner({ store, onDismiss }) {
-  const deload = detectDeload(store);
-  const total = totalSessionCount(store);
-  if (!deload.signal) return null;
-  if (total <= (store.deloadDismissedAt || 0)) return null;
-
-  return (
-    <div style={{ padding: '16px 22px 0' }}>
-      <div className="reveal" style={{
-        display: 'flex', alignItems: 'flex-start', gap: 12,
-        padding: '14px 14px 14px 16px',
-        background: 'var(--st-plateau-bg)',
-        borderLeft: '3px solid var(--st-plateau)',
-        borderRadius: 6,
-      }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em',
-            textTransform: 'uppercase', color: 'var(--st-plateau)', fontWeight: 700,
-            marginBottom: 5,
-          }}>Recovery signal</div>
-          <div style={{ fontSize: 14, color: 'var(--ink-2)', lineHeight: 1.45, fontWeight: 500 }}>
-            {deload.count} exercises declining across recent sessions. Consider a deload week.
-          </div>
-        </div>
-        <button onClick={onDismiss} className="tap" aria-label="Dismiss" style={{
-          width: 28, height: 28, minHeight: 28, flexShrink: 0,
-          fontSize: 18, color: 'var(--muted)', lineHeight: 1,
-        }}>×</button>
-      </div>
-    </div>
-  );
 }
 
 // ── Date-based export helpers ─────────────────────────────────
@@ -818,6 +1167,9 @@ function sessionsForDate(store, dateKey) {
 // Build the mailto payload for one date.
 //   Subject: "Training Log — <date>"
 //   Body:    every exercise logged that day, each set as reps×weight, + notes.
+// Standing notes (store.notes[exId]) are reference info for while you're
+// logging (machine setup, etc.) and are intentionally NEVER included here —
+// only session notes (day-specific observations) go in the export.
 function buildDateEmail(store, dateKey) {
   const pretty = prettyDateFromKey(dateKey);
   const subject = `Training Log — ${pretty}`;
@@ -850,6 +1202,58 @@ function buildDateEmail(store, dateKey) {
   return { to: EMAIL_TO, subject, body: lines.join('\n').trim(), hasData: true, groups };
 }
 
+// Build the mailto payload for a date range (startKey..endKey inclusive).
+// Days with no logged sessions are skipped silently. If only one date has
+// data, the subject and body degrade to the same format as buildDateEmail.
+// Standing notes (store.notes[exId]) are reference info for while you're
+// logging (machine setup, etc.) and are intentionally NEVER included here —
+// only session notes (day-specific observations) go in the export.
+function buildRangeEmail(store, startKey, endKey) {
+  // Walk every calendar day in the range.
+  const allDayGroups = []; // [{ dateKey, pretty, groups }]
+  const start = new Date(startKey + 'T00:00:00');
+  const end   = new Date(endKey   + 'T00:00:00');
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const dk = localDateKey(d);
+    const groups = sessionsForDate(store, dk);
+    if (groups.length) allDayGroups.push({ dateKey: dk, pretty: prettyDateFromKey(dk), groups });
+  }
+
+  if (!allDayGroups.length) {
+    const subject = `Training Log — ${prettyDateFromKey(startKey)}–${prettyDateFromKey(endKey)}`;
+    return { to: EMAIL_TO, subject, body: 'No sessions logged in this date range.', hasData: false, allDayGroups };
+  }
+
+  // Subject: single date if only one day, range otherwise.
+  const subject = allDayGroups.length === 1
+    ? `Training Log — ${allDayGroups[0].pretty}`
+    : `Training Log — ${allDayGroups[0].pretty}–${allDayGroups[allDayGroups.length - 1].pretty}`;
+
+  const lines = [subject, ''];
+  for (const { pretty, groups } of allDayGroups) {
+    // Day names from each routine-day group logged that date.
+    const dayNames = [...new Set(groups.map(g => g.day.name))].join(' · ');
+    lines.push(`─── ${pretty} — ${dayNames} ───`);
+    lines.push('');
+    for (const g of groups) {
+      if (groups.length > 1) lines.push(`Day ${g.day.id} · ${g.day.name}`);
+      for (const { ex, session } of g.items) {
+        lines.push(ex.name);
+        const setStr = session.sets.map(st => (
+          ex.unit === ''
+            ? `${st.reps} ${ex.repUnit || 'reps'}`
+            : `${st.reps}×${fmt(st.weight)}${ex.unit ? ' ' + ex.unit : ''}`
+        )).join(', ');
+        lines.push(`  ${setStr}`);
+        if (session.note) lines.push(`  Note: "${session.note}"`);
+      }
+      lines.push('');
+    }
+  }
+
+  return { to: EMAIL_TO, subject, body: lines.join('\n').trim(), hasData: true, allDayGroups };
+}
+
 // Bottom-of-day launcher — opens the date export sheet.
 function ExportLauncherButton({ onOpen }) {
   return (
@@ -874,82 +1278,13 @@ function ExportLauncherButton({ onOpen }) {
 
 // ── Edit pane ─────────────────────────────────────────────────
 function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImport, onReset, onTogglePlateau }) {
-  const exercises = day.exercises;
+  // Archived exercises stay in day.exercises but are hidden here too. Move
+  // targets are resolved by id against the FULL array (not the filtered
+  // list's position) so an up/down click always swaps with the neighboring
+  // ACTIVE exercise, even if an archived one sits between them underneath.
+  const allExercises = day.exercises;
+  const exercises = allExercises.filter(ex => !ex.archived);
   const GAP = 24;
-  const [drag, setDrag] = React.useState(null); // { from, to, dy } | null
-  const dragRef = React.useRef(null);
-  const startY = React.useRef(0);
-  const metrics = React.useRef(null);          // { mids:[], heights:[] }
-  const cardRefs = React.useRef([]);
-  cardRefs.current.length = exercises.length;
-
-  // Pointer/touch drag (HTML5 DnD is unreliable on iOS). The handle starts a
-  // drag; the dragged card follows the finger via transform while the others
-  // shift to reveal the slot; the drop index is found by comparing midpoints.
-  const beginDrag = (index, e) => {
-    if (dragRef.current) return; // ignore the second of pointerdown+touchstart
-    const y = (e.clientY != null) ? e.clientY
-      : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
-    const rects = cardRefs.current.map(n => n ? n.getBoundingClientRect() : { top: 0, height: 0 });
-    metrics.current = {
-      mids: rects.map(r => r.top + r.height / 2),
-      heights: rects.map(r => r.height),
-    };
-    startY.current = y;
-    dragRef.current = { from: index, to: index, dy: 0 };
-    setDrag(dragRef.current);
-    if (e.pointerId != null && e.currentTarget.setPointerCapture) {
-      try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
-    }
-  };
-
-  const dragging = drag !== null;
-
-  React.useEffect(() => {
-    if (!dragging) return;
-    const getY = (e) => {
-      if (e.clientY != null) return e.clientY;
-      if (e.touches && e.touches[0]) return e.touches[0].clientY;
-      if (e.changedTouches && e.changedTouches[0]) return e.changedTouches[0].clientY;
-      return 0;
-    };
-    const onMoveEvt = (e) => {
-      if (!dragRef.current || !metrics.current) return;
-      if (e.cancelable) e.preventDefault(); // block page scroll mid-drag (iOS)
-      const dy = getY(e) - startY.current;
-      const mids = metrics.current.mids;
-      const from = dragRef.current.from;
-      const draggedMid = mids[from] + dy;
-      let to = from;
-      if (dy < 0) {
-        for (let i = from - 1; i >= 0; i--) { if (draggedMid < mids[i]) to = i; else break; }
-      } else {
-        for (let i = from + 1; i < mids.length; i++) { if (draggedMid > mids[i]) to = i; else break; }
-      }
-      dragRef.current = { from, to, dy };
-      setDrag({ from, to, dy });
-    };
-    const onUpEvt = () => {
-      const d = dragRef.current;
-      dragRef.current = null;
-      setDrag(null);
-      if (d && d.from !== d.to) onMove(dayIndex, d.from, d.to);
-    };
-    window.addEventListener('pointermove', onMoveEvt, { passive: false });
-    window.addEventListener('pointerup', onUpEvt);
-    window.addEventListener('pointercancel', onUpEvt);
-    window.addEventListener('touchmove', onMoveEvt, { passive: false });
-    window.addEventListener('touchend', onUpEvt);
-    window.addEventListener('touchcancel', onUpEvt);
-    return () => {
-      window.removeEventListener('pointermove', onMoveEvt);
-      window.removeEventListener('pointerup', onUpEvt);
-      window.removeEventListener('pointercancel', onUpEvt);
-      window.removeEventListener('touchmove', onMoveEvt);
-      window.removeEventListener('touchend', onUpEvt);
-      window.removeEventListener('touchcancel', onUpEvt);
-    };
-  }, [dragging, dayIndex, onMove]);
 
   return (
     <div style={{ padding: '22px 22px 40px' }}>
@@ -970,44 +1305,23 @@ function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImpo
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, marginTop: 20 }}>
         {exercises.map((ex, i) => {
-          const isDragged = drag != null && drag.from === i;
-          let translateY = 0;
-          let transition = 'transform 180ms cubic-bezier(.2,.7,.3,1)';
-          if (drag != null) {
-            if (isDragged) {
-              translateY = drag.dy;
-              transition = 'none';
-            } else {
-              const lift = ((metrics.current && metrics.current.heights[drag.from]) || 0) + GAP;
-              if (drag.from < drag.to && i > drag.from && i <= drag.to) translateY = -lift;
-              else if (drag.from > drag.to && i < drag.from && i >= drag.to) translateY = lift;
-            }
-          }
+          const fullIndex = allExercises.findIndex(e => e.id === ex.id);
+          const prevActive = exercises[i - 1];
+          const nextActive = exercises[i + 1];
+          const prevFullIndex = prevActive ? allExercises.findIndex(e => e.id === prevActive.id) : -1;
+          const nextFullIndex = nextActive ? allExercises.findIndex(e => e.id === nextActive.id) : -1;
           return (
-            <div
+            <EditRow
               key={ex.id}
-              ref={el => { cardRefs.current[i] = el; }}
-              style={{
-                position: 'relative',
-                transform: `translateY(${translateY}px)`,
-                transition,
-                zIndex: isDragged ? 20 : 1,
-                boxShadow: isDragged ? '0 14px 30px rgba(15,15,16,0.18)' : 'none',
-                borderRadius: isDragged ? 10 : 0,
-                background: isDragged ? 'var(--paper)' : 'transparent',
-                touchAction: dragging ? 'none' : 'auto',
-              }}
-            >
-              <EditRow
-                ex={ex}
-                index={i}
-                onHandleDown={beginDrag}
-                dragging={isDragged}
-                onUpdate={onUpdate}
-                onRemove={onRemove}
-                onTogglePlateau={onTogglePlateau}
-              />
-            </div>
+              ex={ex}
+              isFirst={i === 0}
+              isLast={i === exercises.length - 1}
+              onMoveUp={() => prevFullIndex >= 0 && onMove(dayIndex, fullIndex, prevFullIndex)}
+              onMoveDown={() => nextFullIndex >= 0 && onMove(dayIndex, fullIndex, nextFullIndex)}
+              onUpdate={onUpdate}
+              onRemove={onRemove}
+              onTogglePlateau={onTogglePlateau}
+            />
           );
         })}
       </div>
@@ -1031,30 +1345,56 @@ function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImpo
   );
 }
 
-function EditRow({ ex, index, onHandleDown, dragging, onUpdate, onRemove, onTogglePlateau }) {
+function EditRow({ ex, isFirst, isLast, onMoveUp, onMoveDown, onUpdate, onRemove, onTogglePlateau }) {
   return (
     <div style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
-      <button
-        type="button"
-        aria-label="Drag to reorder"
-        onPointerDown={e => onHandleDown(index, e)}
-        onTouchStart={e => onHandleDown(index, e)}
-        className="tap"
-        style={{
-          flexShrink: 0, width: 34, alignSelf: 'stretch',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'grab', touchAction: 'none',
-          background: 'transparent', border: 'none',
-          color: dragging ? 'var(--accent)' : 'var(--muted-2)',
-        }}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <line x1="3" y1="5" x2="13" y2="5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          <line x1="3" y1="8" x2="13" y2="8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          <line x1="3" y1="11" x2="13" y2="11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-      </button>
-      <div style={{ flex: 1, minWidth: 0, borderLeft: '2px solid var(--hair)', paddingLeft: 14 }}>
+      <div style={{
+        flexShrink: 0, width: 34, alignSelf: 'stretch',
+        display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
+      }}>
+        <button
+          type="button"
+          aria-label="Move exercise up"
+          onClick={onMoveUp}
+          disabled={isFirst}
+          className="tap"
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'transparent', border: 'none',
+            color: isFirst ? 'var(--muted-2)' : 'var(--accent)',
+            opacity: isFirst ? 0.3 : 1,
+            cursor: isFirst ? 'default' : 'pointer',
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 10L8 6L12 10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          aria-label="Move exercise down"
+          onClick={onMoveDown}
+          disabled={isLast}
+          className="tap"
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'transparent', border: 'none',
+            color: isLast ? 'var(--muted-2)' : 'var(--accent)',
+            opacity: isLast ? 0.3 : 1,
+            cursor: isLast ? 'default' : 'pointer',
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+      <div style={{
+        flex: 1, minWidth: 0,
+        padding: '16px 18px',
+        background: 'var(--card-bg)', border: '0.5px solid var(--card-border)',
+        borderRadius: 'var(--card-radius)',
+      }}>
       <input
         value={ex.name}
         onChange={e => onUpdate(ex.id, { name: e.target.value })}
@@ -1065,13 +1405,29 @@ function EditRow({ ex, index, onHandleDown, dragging, onUpdate, onRemove, onTogg
           letterSpacing: '-0.015em',
         }}
       />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10, marginTop: 12 }}>
         <NumField label="Sets" value={ex.sets} min={1} max={10} onChange={v => onUpdate(ex.id, { sets: v })} />
         <NumField label="Rep cap" value={ex.repCap} min={1} max={100} onChange={v => onUpdate(ex.id, { repCap: v })} />
+      </div>
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10,
+        marginTop: 10, padding: 10, background: 'rgba(0, 0, 0, 0.03)', borderRadius: 6,
+      }}>
         <NumField label="Rep min" value={ex.repMin} min={1} max={ex.repMax} onChange={v => onUpdate(ex.id, { repMin: v })} />
         <NumField label="Rep max" value={ex.repMax} min={ex.repMin} max={ex.repCap} onChange={v => onUpdate(ex.id, { repMax: v })} />
+      </div>
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10,
+        marginTop: 10, padding: 10, background: 'rgba(46, 113, 114, 0.07)', borderRadius: 6,
+      }}>
         <NumField label={`Wt min (${ex.unit || '—'})`} value={ex.weightMin} step={ex.weightStep} min={0} max={ex.weightMax} onChange={v => onUpdate(ex.id, { weightMin: v })} />
         <NumField label={`Wt max (${ex.unit || '—'})`} value={ex.weightMax} step={ex.weightStep} min={ex.weightMin} max={9999} onChange={v => onUpdate(ex.id, { weightMax: v })} />
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <ProgressionTypeToggle
+          value={ex.progressionType || 'load'}
+          onChange={v => onUpdate(ex.id, { progressionType: v })}
+        />
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         <button onClick={() => onTogglePlateau(ex.id)} className="tap" style={{
@@ -1122,10 +1478,10 @@ function NumField({ label, value, onChange, step = 1, min, max }) {
   };
 
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
       <span style={{
         fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
-        textTransform: 'uppercase', color: 'var(--muted)',
+        textTransform: 'uppercase', color: 'var(--muted)', overflowWrap: 'break-word',
       }}>{label}</span>
       <input
         type="number"
@@ -1141,6 +1497,7 @@ function NumField({ label, value, onChange, step = 1, min, max }) {
         onBlur={e => { setFocused(false); commit(e.target.value); }}
         className="num"
         style={{
+          width: '100%', minWidth: 0, boxSizing: 'border-box',
           height: 40, border: '1px solid var(--hair)', borderRadius: 4,
           padding: '0 10px', background: 'var(--paper)', fontSize: 16,
           outline: 'none',
@@ -1205,24 +1562,113 @@ function ImportSheet({ currentJson, onImport, onClose }) {
 // Sessions are preserved indefinitely in localStorage. This sheet lets the
 // user pick any week that has logged sessions and export just that week.
 // If only one week of data exists, the picker is skipped automatically.
+// Standing notes (store.notes[exId]) are reference info for while you're
+// logging (machine setup, etc.) and are intentionally never shown here —
+// this preview must match the actual emailed/copied body exactly, which
+// only ever includes session notes.
+function GroupPreview({ groups }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {groups.map(g => (
+        <div key={g.day.id}>
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+            textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700,
+            marginBottom: 10,
+          }}>Day {g.day.id} · {g.day.name}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {g.items.map(({ ex, session }, i) => (
+              <div key={i}>
+                <div style={{
+                  fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 600,
+                  color: 'var(--ink)', letterSpacing: '-0.01em',
+                }}>{ex.name}</div>
+                <div className="num" style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.5 }}>
+                  {session.sets.map((st, j) => (
+                    <span key={j}>
+                      {st.reps}<span style={{ color: 'var(--muted-2)' }}>×</span>{fmt(st.weight)}
+                      {j < session.sets.length - 1 && <span style={{ color: 'var(--muted-2)', margin: '0 6px' }}>·</span>}
+                    </span>
+                  ))}
+                  {ex.unit && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 6 }}>{ex.unit}</span>}
+                </div>
+                {session.note && (
+                  <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+                    “{session.note}”
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ExportSheet({ store, onClose }) {
   const todayKey = localDateKey(new Date());
-  // "Today" is preselected on every open; the picked date is remembered for
-  // the rest of the browser session.
-  const [mode, setMode] = useState('today'); // 'today' | 'pick'
-  const [picked, setPicked] = useState(() => sessionStorage.getItem('pol_export_date') || todayKey);
-  const dateKey = mode === 'today' ? todayKey : picked;
 
+  const [mode, setMode] = useState('today'); // 'today' | 'pick' | 'range'
+
+  // Single-date state (today / pick modes)
+  const [picked, setPicked] = useState(() => sessionStorage.getItem('pol_export_date') || todayKey);
+
+  // Range state
+  const sevenDaysAgo = (() => {
+    const d = new Date(); d.setDate(d.getDate() - 6); return localDateKey(d);
+  })();
+  const thisWeekMonday = (() => {
+    const d = new Date();
+    const day = d.getDay(); // 0=Sun
+    d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+    return localDateKey(d);
+  })();
+  const [rangeStart, setRangeStart] = useState(() => sessionStorage.getItem('pol_range_start') || sevenDaysAgo);
+  const [rangeEnd,   setRangeEnd]   = useState(() => sessionStorage.getItem('pol_range_end')   || todayKey);
+
+  // Persist single-date pick across sheet opens
   useEffect(() => {
     if (mode === 'pick') sessionStorage.setItem('pol_export_date', picked);
   }, [mode, picked]);
 
-  const { to, subject, body, hasData, groups } = useMemo(
-    () => buildDateEmail(store, dateKey),
-    [store, dateKey]
+  // Persist range across sheet opens
+  useEffect(() => {
+    if (mode === 'range') {
+      sessionStorage.setItem('pol_range_start', rangeStart);
+      sessionStorage.setItem('pol_range_end',   rangeEnd);
+    }
+  }, [mode, rangeStart, rangeEnd]);
+
+  const dateKey = mode === 'today' ? todayKey : picked;
+
+  // Single-day email (today / pick modes)
+  const singleEmail = useMemo(
+    () => mode !== 'range' ? buildDateEmail(store, dateKey) : null,
+    [store, dateKey, mode]
   );
-  const mailHref = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  const totalLogged = hasData ? groups.reduce((n, g) => n + g.items.length, 0) : 0;
+
+  // Range email
+  const rangeEmail = useMemo(
+    () => mode === 'range' ? buildRangeEmail(store, rangeStart, rangeEnd) : null,
+    [store, rangeStart, rangeEnd, mode]
+  );
+
+  const active   = mode === 'range' ? rangeEmail   : singleEmail;
+  const hasData  = active ? active.hasData  : false;
+  const body     = active ? active.body     : '';
+  const subject  = active ? active.subject  : '';
+  const mailHref = `mailto:${EMAIL_TO}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+  // Count total logged sets across the active result
+  const totalLogged = useMemo(() => {
+    if (!hasData) return 0;
+    if (mode === 'range') {
+      return (rangeEmail.allDayGroups || []).reduce((n, { groups }) =>
+        n + groups.reduce((m, g) => m + g.items.length, 0), 0);
+    }
+    return (singleEmail.groups || []).reduce((n, g) => n + g.items.length, 0);
+  }, [hasData, mode, singleEmail, rangeEmail]);
 
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -1244,96 +1690,175 @@ function ExportSheet({ store, onClose }) {
     transition: 'background 120ms ease, color 120ms ease, border-color 120ms ease',
   });
 
+  const dateInputStyle = {
+    width: '100%', height: 48, padding: '0 14px',
+    border: '1px solid var(--hair)', borderRadius: 6,
+    background: 'var(--paper)', color: 'var(--ink)', outline: 'none',
+    fontFamily: 'var(--font-mono)', fontSize: 14,
+    boxSizing: 'border-box',
+  };
+
   return (
     <Sheet onClose={onClose} title="Export" titleStyle={{ fontSize: 24, overflow: 'visible', textOverflow: 'clip', flexShrink: 0 }}>
-      <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, margin: '0 0 16px' }}>
-        Email or copy every session logged on a single date.
-      </p>
 
-      {/* Today / Pick a date */}
-      <div style={{ display: 'flex', gap: 8 }}>
+      {/* Mode tabs: Today / Pick a date / Date range */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <button onClick={() => setMode('today')} className="tap" style={segStyle(mode === 'today')}>Today</button>
-        <button onClick={() => setMode('pick')} className="tap" style={segStyle(mode === 'pick')}>Pick a date</button>
+        <button onClick={() => setMode('pick')}  className="tap" style={segStyle(mode === 'pick')}>Pick date</button>
+        <button onClick={() => setMode('range')} className="tap" style={segStyle(mode === 'range')}>Range</button>
       </div>
 
+      {/* ── Single-date pick ── */}
       {mode === 'pick' && (
-        <div className="reveal" style={{ marginTop: 12 }}>
+        <div className="reveal" style={{ marginBottom: 4 }}>
           <input
             type="date"
             value={picked}
             max={todayKey}
             onChange={e => { if (e.target.value) setPicked(e.target.value); }}
             className="num"
-            style={{
-              width: '100%', height: 48, padding: '0 14px',
-              border: '1px solid var(--hair)', borderRadius: 6,
-              background: 'var(--paper)', color: 'var(--ink)', outline: 'none',
-            }}
+            style={dateInputStyle}
           />
         </div>
       )}
 
-      {/* Selected-date heading */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '20px 0 14px' }}>
-        <span style={{
-          fontFamily: 'var(--font-sans)', fontSize: 17, fontWeight: 700,
-          color: 'var(--ink)', letterSpacing: '-0.01em',
-          whiteSpace: 'nowrap', flexShrink: 0,
-        }}>{prettyDateFromKey(dateKey)}</span>
-        <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
-        {hasData && (
-          <span style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
-            letterSpacing: '0.08em', textTransform: 'uppercase',
-          }}>{totalLogged} logged</span>
-        )}
-      </div>
+      {/* ── Range picker ── */}
+      {mode === 'range' && (
+        <div className="reveal">
+          {/* Preset shortcuts */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            {[
+              { label: 'This week', start: thisWeekMonday, end: todayKey },
+              { label: 'Last 7 days', start: sevenDaysAgo, end: todayKey },
+            ].map(p => {
+              const isActive = rangeStart === p.start && rangeEnd === p.end;
+              return (
+                <button
+                  key={p.label}
+                  onClick={() => { setRangeStart(p.start); setRangeEnd(p.end); }}
+                  className="tap"
+                  style={{
+                    height: 34, padding: '0 14px', borderRadius: 6,
+                    fontFamily: 'var(--font-mono)', fontSize: 10,
+                    letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600,
+                    background: isActive ? 'var(--accent-tint)' : 'transparent',
+                    color: isActive ? 'var(--accent)' : 'var(--ink-2)',
+                    border: isActive ? '1px solid var(--accent)' : '1px solid var(--hair)',
+                  }}
+                >{p.label}</button>
+              );
+            })}
+          </div>
 
-      {/* Preview / empty state */}
-      {hasData ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {groups.map(g => (
-            <div key={g.day.id}>
-              <div style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
-                textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700,
-                marginBottom: 10,
-              }}>Day {g.day.id} · {g.day.name}</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {g.items.map(({ ex, session }, i) => (
-                  <div key={i}>
-                    <div style={{
-                      fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 600,
-                      color: 'var(--ink)', letterSpacing: '-0.01em',
-                    }}>{ex.name}</div>
-                    <div className="num" style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.5 }}>
-                      {session.sets.map((st, j) => (
-                        <span key={j}>
-                          {st.reps}<span style={{ color: 'var(--muted-2)' }}>×</span>{fmt(st.weight)}
-                          {j < session.sets.length - 1 && <span style={{ color: 'var(--muted-2)', margin: '0 6px' }}>·</span>}
-                        </span>
-                      ))}
-                      {ex.unit && <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 6 }}>{ex.unit}</span>}
-                    </div>
-                    {session.note && (
-                      <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
-                        “{session.note}”
-                      </div>
-                    )}
-                  </div>
-                ))}
+          {/* Start / End date inputs */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                textTransform: 'uppercase', color: 'var(--muted)',
+              }}>Start</span>
+              <input
+                type="date"
+                value={rangeStart}
+                max={rangeEnd}
+                onChange={e => { if (e.target.value) setRangeStart(e.target.value); }}
+                style={dateInputStyle}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                textTransform: 'uppercase', color: 'var(--muted)',
+              }}>End</span>
+              <input
+                type="date"
+                value={rangeEnd}
+                min={rangeStart}
+                max={todayKey}
+                onChange={e => { if (e.target.value) setRangeEnd(e.target.value); }}
+                style={dateInputStyle}
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* ── Preview heading ── */}
+      {mode !== 'range' && (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '20px 0 14px' }}>
+          <span style={{
+            fontFamily: 'var(--font-sans)', fontSize: 17, fontWeight: 700,
+            color: 'var(--ink)', letterSpacing: '-0.01em',
+            whiteSpace: 'nowrap', flexShrink: 0,
+          }}>{prettyDateFromKey(dateKey)}</span>
+          <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
+          {hasData && (
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
+              letterSpacing: '0.08em', textTransform: 'uppercase',
+            }}>{totalLogged} logged</span>
+          )}
+        </div>
+      )}
+
+      {mode === 'range' && (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '20px 0 14px' }}>
+          <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
+          {hasData && (
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
+              letterSpacing: '0.08em', textTransform: 'uppercase',
+            }}>{(rangeEmail.allDayGroups || []).length} days · {totalLogged} logged</span>
+          )}
+        </div>
+      )}
+
+      {/* ── Preview body ── */}
+      {mode !== 'range' && (
+        hasData ? (
+          <GroupPreview groups={singleEmail.groups} />
+        ) : (
+          <div style={{
+            padding: '22px 16px', borderRadius: 8,
+            border: '1px dashed var(--rule-thick)',
+            textAlign: 'center', fontSize: 13.5, color: 'var(--muted)', fontWeight: 500,
+          }}>
+            No sessions logged for this date.
+          </div>
+        )
+      )}
+
+      {mode === 'range' && (
+        hasData ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
+            {(rangeEmail.allDayGroups || []).map(({ dateKey: dk, pretty, groups }) => (
+              <div key={dk}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14,
+                }}>
+                  <span style={{
+                    fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 700,
+                    color: 'var(--ink)', letterSpacing: '-0.01em', whiteSpace: 'nowrap',
+                  }}>{pretty}</span>
+                  <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
+                  <span style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--accent)',
+                    letterSpacing: '0.10em', textTransform: 'uppercase', fontWeight: 700,
+                  }}>{groups.map(g => g.day.name).join(' · ')}</span>
+                </div>
+                <GroupPreview groups={groups} />
               </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div style={{
-          padding: '22px 16px', borderRadius: 8,
-          border: '1px dashed var(--rule-thick)',
-          textAlign: 'center', fontSize: 13.5, color: 'var(--muted)', fontWeight: 500,
-        }}>
-          No sessions logged for this date.
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{
+            padding: '22px 16px', borderRadius: 8,
+            border: '1px dashed var(--rule-thick)',
+            textAlign: 'center', fontSize: 13.5, color: 'var(--muted)', fontWeight: 500,
+          }}>
+            No sessions logged in this date range.
+          </div>
+        )
       )}
 
       {/* Actions */}
@@ -1355,7 +1880,14 @@ function ExportSheet({ store, onClose }) {
           href={hasData ? mailHref : undefined}
           className="tap"
           aria-disabled={!hasData}
-          onClick={e => { if (!hasData) e.preventDefault(); }}
+          onClick={e => {
+            e.preventDefault();
+            if (!hasData) return;
+            // Pin scroll position — some browsers reset to top on mailto navigation.
+            const y = window.scrollY;
+            window.location.href = mailHref;
+            requestAnimationFrame(() => window.scrollTo(0, y));
+          }}
           style={{
             flex: 2, height: 48, borderRadius: 6,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1372,6 +1904,687 @@ function ExportSheet({ store, onClose }) {
 }
 
 // ── Sheet (modal) ─────────────────────────────────────────────
+// ── History browsing & editing ────────────────────────────────
+
+// Collect every distinct logged date across all exercises, newest first.
+function allLoggedDates(store) {
+  const seen = new Set();
+  for (const sess of Object.values(store.sessions || {})) {
+    for (const s of (sess || [])) {
+      if (s && s.date) seen.add(localDateKey(s.date));
+    }
+  }
+  return [...seen].sort((a, b) => (a < b ? 1 : -1));
+}
+
+// ── HistorySheet — date-list picker ──────────────────────────
+function HistorySheet({ store, onEditSets, onAddSession, onRemoveSession, onClose }) {
+  const [editingDate, setEditingDate] = useState(null);
+  const dates = allLoggedDates(store);
+
+  if (editingDate) {
+    return (
+      <HistoryDayEditor
+        store={store}
+        dateKey={editingDate}
+        onEditSets={onEditSets}
+        onAddSession={onAddSession}
+        onRemoveSession={onRemoveSession}
+        onBack={() => setEditingDate(null)}
+        onClose={onClose}
+      />
+    );
+  }
+
+  return (
+    <Sheet onClose={onClose} title="History">
+      {dates.length === 0 && (
+        <div style={{
+          padding: '22px 16px', borderRadius: 8,
+          border: '1px dashed var(--rule-thick)',
+          textAlign: 'center', fontSize: 13.5, color: 'var(--muted)', fontWeight: 500,
+        }}>
+          No sessions logged yet.
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {dates.map(dk => {
+          const groups = sessionsForDate(store, dk);
+          const dayNames = [...new Set(groups.map(g => g.day.name))].join(' · ');
+          const exCount = groups.reduce((n, g) => n + g.items.length, 0);
+          const isToday = dk === localDateKey(new Date());
+          return (
+            <button
+              key={dk}
+              onClick={() => setEditingDate(dk)}
+              className="tap"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                width: '100%', padding: '14px 0',
+                borderBottom: '1px solid var(--hair)',
+                background: 'none', textAlign: 'left',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 600,
+                  color: 'var(--ink)', letterSpacing: '-0.01em',
+                }}>
+                  {prettyDateFromKey(dk)}
+                  {isToday && (
+                    <span style={{
+                      marginLeft: 8, fontSize: 10, fontWeight: 700,
+                      fontFamily: 'var(--font-mono)', letterSpacing: '0.10em',
+                      textTransform: 'uppercase', color: 'var(--accent)',
+                    }}>Today</span>
+                  )}
+                </div>
+                <div style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em',
+                  textTransform: 'uppercase', color: 'var(--muted)', marginTop: 3,
+                }}>
+                  {dayNames} · {exCount} exercise{exCount !== 1 ? 's' : ''}
+                </div>
+              </div>
+              <span style={{ color: 'var(--muted)', fontSize: 18, flexShrink: 0 }}>›</span>
+            </button>
+          );
+        })}
+      </div>
+    </Sheet>
+  );
+}
+
+// ── HistoryDayEditor — edit one past day's sessions ───────────
+function HistoryDayEditor({ store, dateKey, onEditSets, onAddSession, onRemoveSession, onBack, onClose }) {
+  const isToday = dateKey === localDateKey(new Date());
+  const pretty = prettyDateFromKey(dateKey);
+
+  // All exercises that were logged on this date, by day group
+  const groups = sessionsForDate(store, dateKey);
+
+  // Per-exercise local set state: { [exId]: sets[] } — drives the inline editors
+  const [localSets, setLocalSets] = useState(() => {
+    const init = {};
+    for (const g of groups) {
+      for (const { ex, session } of g.items) {
+        init[ex.id] = session.sets.map(s => ({ ...s }));
+      }
+    }
+    return init;
+  });
+
+  // Track which exercises are "dirty" (local edits not yet saved)
+  const [dirty, setDirty] = useState({});
+
+  // Which exercise is showing the remove-session confirm prompt
+  const [confirmRemove, setConfirmRemove] = useState(null);
+
+  // Which set index is showing the remove-set confirm prompt: { exId, idx }
+  const [confirmRemoveSet, setConfirmRemoveSet] = useState(null);
+
+  // "Add exercise" panel open?
+  const [addingEx, setAddingEx] = useState(null); // null | dayId
+
+  const updateLocalSet = (exId, idx, field, rawVal) => {
+    const val = rawVal === '' ? '' : Number(rawVal);
+    setLocalSets(prev => {
+      const sets = prev[exId].map((s, i) => i === idx ? { ...s, [field]: val } : s);
+      return { ...prev, [exId]: sets };
+    });
+    setDirty(prev => ({ ...prev, [exId]: true }));
+  };
+
+  const saveEdits = (exId) => {
+    const sets = localSets[exId];
+    // Filter out any set with empty/non-numeric reps or weight
+    const valid = sets.filter(s => Number.isFinite(s.reps) && (Number.isFinite(s.weight) || s.weight === 0));
+    if (!valid.length) return;
+    onEditSets(exId, dateKey, valid);
+    setDirty(prev => ({ ...prev, [exId]: false }));
+  };
+
+  const addSet = (exId) => {
+    setLocalSets(prev => {
+      const sets = prev[exId];
+      const last = sets[sets.length - 1] || { reps: 8, weight: 0 };
+      return { ...prev, [exId]: [...sets, { reps: last.reps, weight: last.weight }] };
+    });
+    setDirty(prev => ({ ...prev, [exId]: true }));
+  };
+
+  const requestRemoveSet = (exId, idx) => {
+    setConfirmRemoveSet({ exId, idx });
+  };
+
+  const confirmDoRemoveSet = () => {
+    if (!confirmRemoveSet) return;
+    const { exId, idx } = confirmRemoveSet;
+    setLocalSets(prev => {
+      const sets = prev[exId].filter((_, i) => i !== idx);
+      return { ...prev, [exId]: sets };
+    });
+    setDirty(prev => ({ ...prev, [exId]: true }));
+    setConfirmRemoveSet(null);
+  };
+
+  const requestRemoveSession = (exId) => setConfirmRemove(exId);
+
+  const confirmDoRemoveSession = () => {
+    if (!confirmRemove) return;
+    onRemoveSession(confirmRemove, dateKey);
+    setConfirmRemove(null);
+    // Remove from local state
+    setLocalSets(prev => {
+      const next = { ...prev };
+      delete next[confirmRemove];
+      return next;
+    });
+  };
+
+  // All exercises on any day's routine that aren't already logged this date
+  const loggedExIds = new Set(
+    groups.flatMap(g => g.items.map(({ ex }) => ex.id))
+  );
+
+  // Get all exercises for a given day that aren't yet logged this date
+  // (excludes archived — you can still edit their existing entries, just not
+  // backfill new ones for a retired exercise).
+  const unloggedForDay = (day) =>
+    day.exercises.filter(ex => !ex.archived && !loggedExIds.has(ex.id));
+
+  const [newExSets, setNewExSets] = useState([{ reps: 8, weight: 0 }]);
+
+  const resetAddPanel = () => {
+    setAddingEx(null);
+    setNewExSets([{ reps: 8, weight: 0 }]);
+  };
+
+  const submitNewSession = (exId) => {
+    const valid = newExSets.filter(s => Number.isFinite(s.reps) && Number.isFinite(s.weight));
+    if (!valid.length) return;
+    onAddSession(exId, dateKey, valid);
+    // Optimistically add to local state so the editor shows immediately
+    setLocalSets(prev => ({ ...prev, [exId]: valid.map(s => ({ ...s })) }));
+    resetAddPanel();
+  };
+
+  const inputStyle = {
+    width: 60, height: 34, borderRadius: 6, border: '1px solid var(--hair)',
+    background: 'var(--paper)', color: 'var(--ink)',
+    fontFamily: 'var(--font-mono)', fontSize: 14, textAlign: 'center',
+    outline: 'none', padding: '0 4px',
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'absolute', inset: 0, zIndex: 100,
+        background: 'rgba(20, 18, 14, 0.32)',
+        display: 'flex', alignItems: 'flex-end',
+        backdropFilter: 'blur(2px)',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: '100%', maxHeight: '92%',
+          background: 'var(--paper)',
+          borderRadius: '16px 16px 0 0',
+          overflow: 'auto',
+          boxShadow: '0 -10px 30px rgba(0,0,0,0.12)',
+        }}
+      >
+        {/* History-edit banner — always visible at top */}
+        {!isToday && (
+          <div style={{
+            background: '#FFF7E6',
+            borderBottom: '2px solid #F5A623',
+            padding: '10px 22px',
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+              letterSpacing: '0.12em', textTransform: 'uppercase', color: '#C17B00',
+            }}>Editing historical data</span>
+            <span style={{ flex: 1 }} />
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, color: '#C17B00',
+              letterSpacing: '0.06em',
+            }}>{pretty}</span>
+          </div>
+        )}
+
+        <div style={{ padding: '14px 22px 32px' }}>
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--hair)', margin: '0 auto 18px' }} />
+
+          {/* Header row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 22 }}>
+            <button onClick={onBack} className="tap" style={{
+              fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--accent)',
+              letterSpacing: '0.06em', padding: '4px 0',
+            }}>‹ Back</button>
+            <h2 style={{
+              flex: 1, margin: 0, fontFamily: 'var(--font-sans)', fontWeight: 700,
+              fontSize: 22, color: 'var(--ink)', letterSpacing: '-0.02em',
+            }}>{pretty}</h2>
+            <button onClick={onClose} className="tap" style={{
+              fontSize: 22, color: 'var(--muted)', padding: '0 8px',
+            }}>×</button>
+          </div>
+
+          {/* Per-exercise editors */}
+          {groups.map(g => (
+            <div key={g.day.id} style={{ marginBottom: 28 }}>
+              <div style={{
+                fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em',
+                textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700,
+                marginBottom: 14,
+              }}>Day {g.day.id} · {g.day.name}</div>
+
+              {g.items.map(({ ex, session }) => {
+                const sets = localSets[ex.id] || [];
+                const isDirty = dirty[ex.id];
+                const verdict = governingVerdict(ex, sets);
+                const vTone = verdict.kind === 'increase' ? '#2E7172'
+                            : verdict.kind === 'repeat'   ? '#C0392B'
+                            : '#888';
+                return (
+                  <div key={ex.id} style={{
+                    background: 'var(--card-bg)', borderRadius: 14,
+                    border: '0.5px solid rgba(0,0,0,0.07)',
+                    padding: '16px 16px 14px', marginBottom: 12,
+                  }}>
+                    {/* Exercise name + remove */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                      <span style={{
+                        flex: 1, fontFamily: 'var(--font-sans)', fontSize: 15,
+                        fontWeight: 600, color: 'var(--ink)', letterSpacing: '-0.01em',
+                      }}>{ex.name}</span>
+                      <span style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+                        letterSpacing: '0.08em', textTransform: 'uppercase', color: vTone,
+                      }}>{verdict.text.split(' ')[0]}</span>
+                      <button
+                        onClick={() => requestRemoveSession(ex.id)}
+                        className="tap"
+                        style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                          textTransform: 'uppercase', color: '#C0392B',
+                          border: '1px solid rgba(192,57,43,0.3)', borderRadius: 4,
+                          padding: '3px 8px',
+                        }}
+                      >Remove</button>
+                    </div>
+
+                    {/* Session note for this date — display only, same as the
+                        inline per-card History view and the export preview. */}
+                    {session.note && (
+                      <div style={{
+                        marginTop: -4, marginBottom: 12, fontSize: 12.5,
+                        color: 'var(--ink-2)', lineHeight: 1.5,
+                      }}>
+                        “{session.note}”
+                      </div>
+                    )}
+
+                    {/* Column labels */}
+                    <div style={{
+                      display: 'grid', gridTemplateColumns: '24px 1fr 1fr 28px',
+                      gap: 6, alignItems: 'center', marginBottom: 6,
+                    }}>
+                      <span />
+                      <span style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                        textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'center',
+                      }}>Reps</span>
+                      <span style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                        textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'center',
+                      }}>{ex.unit || 'BW'}</span>
+                      <span />
+                    </div>
+
+                    {/* Set rows */}
+                    {sets.map((s, idx) => (
+                      <div key={idx} style={{
+                        display: 'grid', gridTemplateColumns: '24px 1fr 1fr 28px',
+                        gap: 6, alignItems: 'center', marginBottom: 8,
+                      }}>
+                        <span style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)',
+                          textAlign: 'center',
+                        }}>{idx + 1}</span>
+                        <input
+                          type="number"
+                          value={s.reps}
+                          onChange={e => updateLocalSet(ex.id, idx, 'reps', e.target.value)}
+                          style={inputStyle}
+                        />
+                        {ex.unit !== '' ? (
+                          <input
+                            type="number"
+                            value={s.weight}
+                            onChange={e => updateLocalSet(ex.id, idx, 'weight', e.target.value)}
+                            style={inputStyle}
+                          />
+                        ) : (
+                          <span style={{
+                            textAlign: 'center', fontFamily: 'var(--font-mono)',
+                            fontSize: 12, color: 'var(--muted)',
+                          }}>—</span>
+                        )}
+                        <button
+                          onClick={() => requestRemoveSet(ex.id, idx)}
+                          className="tap"
+                          style={{
+                            width: 24, height: 24, borderRadius: 4,
+                            border: '1px solid var(--hair)', background: 'none',
+                            color: 'var(--muted)', fontSize: 14, lineHeight: 1,
+                          }}
+                        >×</button>
+                      </div>
+                    ))}
+
+                    {/* Add set + Save row */}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                      <button
+                        onClick={() => addSet(ex.id)}
+                        className="tap"
+                        style={{
+                          flex: 1, height: 34, borderRadius: 6,
+                          border: '1px dashed var(--rule-thick)', background: 'none',
+                          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                          textTransform: 'uppercase', color: 'var(--muted)',
+                        }}
+                      >+ Set</button>
+                      {isDirty && (
+                        <button
+                          onClick={() => saveEdits(ex.id)}
+                          className="tap"
+                          style={{
+                            flex: 1, height: 34, borderRadius: 6,
+                            background: 'var(--accent)', border: 'none',
+                            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                            textTransform: 'uppercase', color: '#fff', fontWeight: 700,
+                          }}
+                        >Save</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+
+          {/* Add exercise section */}
+          {store.days.some(d => unloggedForDay(d).length > 0) && (
+            <div style={{ marginTop: 8 }}>
+              {addingEx === null ? (
+                <button
+                  onClick={() => setAddingEx('pick')}
+                  className="tap"
+                  style={{
+                    width: '100%', height: 44, borderRadius: 8,
+                    border: '1px dashed var(--rule-thick)', background: 'none',
+                    fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+                    textTransform: 'uppercase', color: 'var(--muted)',
+                  }}
+                >+ Add Exercise</button>
+              ) : addingEx === 'pick' ? (
+                <div style={{
+                  background: 'var(--card-bg)', borderRadius: 14,
+                  border: '0.5px solid rgba(0,0,0,0.07)', padding: '16px',
+                }}>
+                  <div style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em',
+                    textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12,
+                  }}>Choose exercise</div>
+                  {store.days.map(d => {
+                    const available = unloggedForDay(d);
+                    if (!available.length) return null;
+                    return (
+                      <div key={d.id} style={{ marginBottom: 10 }}>
+                        <div style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em',
+                          textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 6,
+                        }}>Day {d.id} · {d.name}</div>
+                        {available.map(ex => (
+                          <button
+                            key={ex.id}
+                            onClick={() => setAddingEx(ex.id)}
+                            className="tap"
+                            style={{
+                              display: 'block', width: '100%', textAlign: 'left',
+                              padding: '10px 12px', borderRadius: 6,
+                              border: '1px solid var(--hair)', background: 'none',
+                              fontFamily: 'var(--font-sans)', fontSize: 14, color: 'var(--ink)',
+                              marginBottom: 6,
+                            }}
+                          >{ex.name}</button>
+                        ))}
+                      </div>
+                    );
+                  })}
+                  <button onClick={resetAddPanel} className="tap" style={{
+                    marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 10,
+                    letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--muted)',
+                  }}>Cancel</button>
+                </div>
+              ) : (
+                // addingEx is an exId — show the set-entry form
+                (() => {
+                  const ex = findEx(store, addingEx);
+                  if (!ex) return null;
+                  return (
+                    <div style={{
+                      background: 'var(--card-bg)', borderRadius: 14,
+                      border: '0.5px solid rgba(0,0,0,0.07)', padding: '16px',
+                    }}>
+                      <div style={{
+                        fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 600,
+                        color: 'var(--ink)', marginBottom: 14,
+                      }}>{ex.name}</div>
+                      <div style={{
+                        display: 'grid', gridTemplateColumns: '24px 1fr 1fr 28px',
+                        gap: 6, alignItems: 'center', marginBottom: 6,
+                      }}>
+                        <span />
+                        <span style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                          textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'center',
+                        }}>Reps</span>
+                        <span style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+                          textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'center',
+                        }}>{ex.unit || 'BW'}</span>
+                        <span />
+                      </div>
+                      {newExSets.map((s, idx) => (
+                        <div key={idx} style={{
+                          display: 'grid', gridTemplateColumns: '24px 1fr 1fr 28px',
+                          gap: 6, alignItems: 'center', marginBottom: 8,
+                        }}>
+                          <span style={{
+                            fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)',
+                            textAlign: 'center',
+                          }}>{idx + 1}</span>
+                          <input
+                            type="number"
+                            value={s.reps}
+                            onChange={e => {
+                              const v = e.target.value === '' ? '' : Number(e.target.value);
+                              setNewExSets(prev => prev.map((r, i) => i === idx ? { ...r, reps: v } : r));
+                            }}
+                            style={inputStyle}
+                          />
+                          {ex.unit !== '' ? (
+                            <input
+                              type="number"
+                              value={s.weight}
+                              onChange={e => {
+                                const v = e.target.value === '' ? '' : Number(e.target.value);
+                                setNewExSets(prev => prev.map((r, i) => i === idx ? { ...r, weight: v } : r));
+                              }}
+                              style={inputStyle}
+                            />
+                          ) : (
+                            <span style={{
+                              textAlign: 'center', fontFamily: 'var(--font-mono)',
+                              fontSize: 12, color: 'var(--muted)',
+                            }}>—</span>
+                          )}
+                          {newExSets.length > 1 && (
+                            <button
+                              onClick={() => setNewExSets(prev => prev.filter((_, i) => i !== idx))}
+                              className="tap"
+                              style={{
+                                width: 24, height: 24, borderRadius: 4,
+                                border: '1px solid var(--hair)', background: 'none',
+                                color: 'var(--muted)', fontSize: 14, lineHeight: 1,
+                              }}
+                            >×</button>
+                          )}
+                        </div>
+                      ))}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                        <button
+                          onClick={() => setNewExSets(prev => {
+                            const last = prev[prev.length - 1];
+                            return [...prev, { reps: last.reps, weight: last.weight }];
+                          })}
+                          className="tap"
+                          style={{
+                            flex: 1, height: 34, borderRadius: 6,
+                            border: '1px dashed var(--rule-thick)', background: 'none',
+                            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                            textTransform: 'uppercase', color: 'var(--muted)',
+                          }}
+                        >+ Set</button>
+                        <button
+                          onClick={() => submitNewSession(addingEx)}
+                          className="tap"
+                          style={{
+                            flex: 1, height: 34, borderRadius: 6,
+                            background: 'var(--accent)', border: 'none',
+                            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                            textTransform: 'uppercase', color: '#fff', fontWeight: 700,
+                          }}
+                        >Add</button>
+                        <button
+                          onClick={resetAddPanel}
+                          className="tap"
+                          style={{
+                            flex: 1, height: 34, borderRadius: 6,
+                            border: '1px solid var(--hair)', background: 'none',
+                            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                            textTransform: 'uppercase', color: 'var(--muted)',
+                          }}
+                        >Cancel</button>
+                      </div>
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Confirm: remove set */}
+        {confirmRemoveSet && (
+          <div
+            onClick={() => setConfirmRemoveSet(null)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 200,
+              background: 'rgba(20,18,14,0.45)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                background: 'var(--paper)', borderRadius: 14, padding: '24px 22px',
+                width: 280, boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+              }}
+            >
+              <div style={{
+                fontFamily: 'var(--font-sans)', fontSize: 17, fontWeight: 700,
+                color: 'var(--ink)', marginBottom: 8,
+              }}>Remove set {confirmRemoveSet.idx + 1}?</div>
+              <div style={{
+                fontFamily: 'var(--font-sans)', fontSize: 13.5, color: 'var(--muted)',
+                marginBottom: 20,
+              }}>This will delete this set from the historical log. It cannot be undone.</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setConfirmRemoveSet(null)} className="tap" style={{
+                  flex: 1, height: 40, borderRadius: 8,
+                  border: '1px solid var(--hair)', background: 'none',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                  textTransform: 'uppercase', color: 'var(--ink-2)',
+                }}>Cancel</button>
+                <button onClick={confirmDoRemoveSet} className="tap" style={{
+                  flex: 1, height: 40, borderRadius: 8,
+                  background: '#C0392B', border: 'none',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                  textTransform: 'uppercase', color: '#fff', fontWeight: 700,
+                }}>Remove</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Confirm: remove exercise session */}
+        {confirmRemove && (
+          <div
+            onClick={() => setConfirmRemove(null)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 200,
+              background: 'rgba(20,18,14,0.45)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                background: 'var(--paper)', borderRadius: 14, padding: '24px 22px',
+                width: 280, boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+              }}
+            >
+              <div style={{
+                fontFamily: 'var(--font-sans)', fontSize: 17, fontWeight: 700,
+                color: 'var(--ink)', marginBottom: 8,
+              }}>Remove exercise?</div>
+              <div style={{
+                fontFamily: 'var(--font-sans)', fontSize: 13.5, color: 'var(--muted)',
+                marginBottom: 20,
+              }}>
+                This will delete the entire log entry for{' '}
+                <strong>{findEx(store, confirmRemove)?.name}</strong> on {pretty}.
+                Other days and exercises are not affected.
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setConfirmRemove(null)} className="tap" style={{
+                  flex: 1, height: 40, borderRadius: 8,
+                  border: '1px solid var(--hair)', background: 'none',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                  textTransform: 'uppercase', color: 'var(--ink-2)',
+                }}>Cancel</button>
+                <button onClick={confirmDoRemoveSession} className="tap" style={{
+                  flex: 1, height: 40, borderRadius: 8,
+                  background: '#C0392B', border: 'none',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                  textTransform: 'uppercase', color: '#fff', fontWeight: 700,
+                }}>Remove</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Sheet({ title, children, onClose, titleStyle }) {
   return (
     <div
