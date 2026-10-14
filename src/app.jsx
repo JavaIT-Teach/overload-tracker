@@ -2,6 +2,118 @@
 // ─────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = 'pol_tracker_v1';
+const PALETTE_KEY = 'pol_palette_v1';
+
+const PALETTES = [
+  {
+    id: 'default',
+    name: 'Teal',
+    swatch: '#2E7172',
+    vars: {
+      '--paper': '#FFFFFF', '--paper-2': '#F0EFE9',
+      '--ink': '#0E0E10', '--ink-2': '#2A2A2E',
+      '--accent': '#2E7172', '--accent-2': '#215859',
+      '--accent-tint': 'rgba(46,113,114,0.08)',
+      '--card-bg': '#F0EFE9', '--card-border': 'rgba(0,0,0,0.07)',
+      '--muted': '#5A5A62', '--muted-2': '#8A8A94',
+      '--hair': 'rgba(14,14,16,0.10)', '--hair-2': 'rgba(14,14,16,0.06)',
+      '--rule-thick': 'rgba(14,14,16,0.18)',
+    },
+  },
+  {
+    id: 'midnight',
+    name: 'Midnight',
+    swatch: '#7C6AF5',
+    vars: {
+      '--paper': '#1A1A2E', '--paper-2': '#16213E',
+      '--ink': '#E8E8F0', '--ink-2': '#B0B0C8',
+      '--accent': '#7C6AF5', '--accent-2': '#5E4FD4',
+      '--accent-tint': 'rgba(124,106,245,0.15)',
+      '--card-bg': '#16213E', '--card-border': 'rgba(255,255,255,0.08)',
+      '--muted': '#8888AA', '--muted-2': '#5A5A7A',
+      '--hair': 'rgba(255,255,255,0.08)', '--hair-2': 'rgba(255,255,255,0.04)',
+      '--rule-thick': 'rgba(255,255,255,0.15)',
+      '--st-dev': '#94A3B8', '--st-dev-bg': '#1E2A3A',
+      '--st-stable': '#4ADE80', '--st-stable-bg': '#0A2A18',
+      '--st-plateau': '#FCD34D', '--st-plateau-bg': '#2A1E04',
+    },
+  },
+  {
+    id: 'ember',
+    name: 'Ember',
+    swatch: '#C0392B',
+    vars: {
+      '--paper': '#FDFAF8', '--paper-2': '#F5EDE8',
+      '--ink': '#1A0A06', '--ink-2': '#3D1A12',
+      '--accent': '#C0392B', '--accent-2': '#96281B',
+      '--accent-tint': 'rgba(192,57,43,0.08)',
+      '--card-bg': '#F5EDE8', '--card-border': 'rgba(0,0,0,0.07)',
+      '--muted': '#7A5A52', '--muted-2': '#A08078',
+      '--hair': 'rgba(26,10,6,0.10)', '--hair-2': 'rgba(26,10,6,0.06)',
+      '--rule-thick': 'rgba(26,10,6,0.18)',
+    },
+  },
+  {
+    id: 'forest',
+    name: 'Forest',
+    swatch: '#2D6A4F',
+    vars: {
+      '--paper': '#F8FAF6', '--paper-2': '#E8F0E4',
+      '--ink': '#0A1A0E', '--ink-2': '#1E3A24',
+      '--accent': '#2D6A4F', '--accent-2': '#1B4332',
+      '--accent-tint': 'rgba(45,106,79,0.09)',
+      '--card-bg': '#E8F0E4', '--card-border': 'rgba(0,0,0,0.07)',
+      '--muted': '#5A7A62', '--muted-2': '#8AAA90',
+      '--hair': 'rgba(10,26,14,0.10)', '--hair-2': 'rgba(10,26,14,0.06)',
+      '--rule-thick': 'rgba(10,26,14,0.18)',
+    },
+  },
+  {
+    id: 'slate',
+    name: 'Slate',
+    swatch: '#334155',
+    vars: {
+      '--paper': '#F8F9FB', '--paper-2': '#EDF0F4',
+      '--ink': '#0F172A', '--ink-2': '#334155',
+      '--accent': '#3B82F6', '--accent-2': '#2563EB',
+      '--accent-tint': 'rgba(59,130,246,0.09)',
+      '--card-bg': '#EDF0F4', '--card-border': 'rgba(0,0,0,0.07)',
+      '--muted': '#64748B', '--muted-2': '#94A3B8',
+      '--hair': 'rgba(15,23,42,0.10)', '--hair-2': 'rgba(15,23,42,0.06)',
+      '--rule-thick': 'rgba(15,23,42,0.18)',
+    },
+  },
+  {
+    id: 'sand',
+    name: 'Sand',
+    swatch: '#B5651D',
+    vars: {
+      '--paper': '#FEFAF4', '--paper-2': '#F4ECD8',
+      '--ink': '#1C1208', '--ink-2': '#3D2A10',
+      '--accent': '#B5651D', '--accent-2': '#8B4A12',
+      '--accent-tint': 'rgba(181,101,29,0.09)',
+      '--card-bg': '#F4ECD8', '--card-border': 'rgba(0,0,0,0.07)',
+      '--muted': '#7A6040', '--muted-2': '#A8906A',
+      '--hair': 'rgba(28,18,8,0.10)', '--hair-2': 'rgba(28,18,8,0.06)',
+      '--rule-thick': 'rgba(28,18,8,0.18)',
+    },
+  },
+];
+
+const ST_VARS_DEFAULT = {
+  '--st-dev': '#6B7280', '--st-dev-bg': '#EEF0F3',
+  '--st-stable': '#15803D', '--st-stable-bg': '#E6F6EC',
+  '--st-plateau': '#B45309', '--st-plateau-bg': '#FDF1DC',
+};
+
+function applyPalette(id) {
+  const p = PALETTES.find(p => p.id === id) || PALETTES[0];
+  const root = document.documentElement;
+  // Reset st-* to defaults first, then apply palette (which may override them)
+  Object.entries(ST_VARS_DEFAULT).forEach(([k, v]) => root.style.setProperty(k, v));
+  Object.entries(p.vars).forEach(([k, v]) => root.style.setProperty(k, v));
+  document.body.style.background = p.vars['--paper'];
+}
 // Stamped onto saved data. NOTE: a version mismatch no longer WIPES your
 // data — loading is non-destructive. The seed (routine definitions + the
 // hardcoded session history) is RECONCILED into whatever is stored: missing
@@ -330,6 +442,10 @@ function App() {
     const saved = parseInt(localStorage.getItem('pol_active_day'), 10);
     return Number.isFinite(saved) ? saved : 1;
   });
+  const [palette, setPaletteId] = useState(() => localStorage.getItem(PALETTE_KEY) || 'default');
+  React.useEffect(() => { applyPalette(palette); }, [palette]);
+  const setPalette = (id) => { setPaletteId(id); localStorage.setItem(PALETTE_KEY, id); };
+
   const [editMode, setEditMode] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
@@ -1063,6 +1179,8 @@ function App() {
             onTogglePlateau={togglePlateau}
             onShowImport={() => setShowImport(true)}
             onReset={resetAll}
+            palette={palette}
+            onPaletteChange={setPalette}
           />
         )}
       </main>
@@ -1285,8 +1403,51 @@ function ExportLauncherButton({ onOpen }) {
   );
 }
 
+// ── Palette picker ─────────────────────────────────────────────
+function PalettePicker({ current, onChange }) {
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+        color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 10,
+      }}>Color Theme</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+        {PALETTES.map(p => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => onChange(p.id)}
+            className="tap"
+            title={p.name}
+            style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+              padding: '10px 12px', borderRadius: 10,
+              border: current === p.id
+                ? `2px solid ${p.swatch}`
+                : '2px solid transparent',
+              background: current === p.id ? 'var(--accent-tint)' : 'var(--paper-2)',
+              cursor: 'pointer', minWidth: 56,
+            }}
+          >
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%',
+              background: p.swatch,
+              boxShadow: current === p.id ? `0 0 0 3px ${p.swatch}40` : 'none',
+              transition: 'box-shadow 150ms ease',
+            }} />
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em',
+              textTransform: 'uppercase', color: 'var(--ink-2)', fontWeight: 600,
+            }}>{p.name}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Edit pane ─────────────────────────────────────────────────
-function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImport, onReset, onTogglePlateau }) {
+function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImport, onReset, onTogglePlateau, palette, onPaletteChange }) {
   // Archived exercises stay in day.exercises but are hidden here too. Move
   // targets are resolved by id against the FULL array (not the filtered
   // list's position) so an up/down click always swaps with the neighboring
@@ -1312,7 +1473,9 @@ function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImpo
         }}>Import JSON</button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, marginTop: 20 }}>
+      <PalettePicker current={palette} onChange={onPaletteChange} />
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, marginTop: 0 }}>
         {exercises.map((ex, i) => {
           const fullIndex = allExercises.findIndex(e => e.id === ex.id);
           const prevActive = exercises[i - 1];
