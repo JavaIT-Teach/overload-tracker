@@ -273,9 +273,10 @@ function CountdownBar({ total, remaining }) {
 // Returns true when more than 4 mini-sets were needed before hitting ≤3 reps,
 // meaning the 5th set (index 4) or later is when reps first dropped to 3.
 function clusterTriggersProgression(sets) {
+  if (sets.length === 0) return false;
   const dropIdx = sets.findIndex(s => s.reps <= 3);
-  if (dropIdx === -1) return false; // never hit 3 reps (manual finish)
-  return dropIdx >= 4;              // hit 3 reps on the 5th mini-set or later
+  if (dropIdx === -1) return sets.length >= 4; // manual finish: 4+ clean sets = ready
+  return dropIdx >= 4;                          // hit fatigue on 5th+ set
 }
 
 // ── Cluster Logging Panel ─────────────────────────────────────
@@ -1161,7 +1162,7 @@ function LiveExerciseView({
                   textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700, marginBottom: 8,
                 }}>Progression signal</div>
                 <div style={{ fontSize: 15, color: 'var(--ink)', fontWeight: 500, lineHeight: 1.4 }}>
-                  You completed <span className="num" style={{ color: 'var(--accent)', fontWeight: 700 }}>{justLogged.sets.length}</span> mini-sets before reaching 3 reps.
+                  You completed <span className="num" style={{ color: 'var(--accent)', fontWeight: 700 }}>{justLogged.sets.length}</span> mini-sets — strong session.
                   Increase weight next session?
                 </div>
                 <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
