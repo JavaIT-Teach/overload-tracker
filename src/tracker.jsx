@@ -783,7 +783,7 @@ function ExerciseNote({ note, onSave, onDelete }) {
 }
 
 // ── Exercise card ──────────────────────────────────────────────
-function ExerciseCard({ ex, history, note, onOpenLive, onSaveNote, onDeleteNote }) {
+function ExerciseCard({ ex, history, note, done, onOpenLive, onSaveNote, onDeleteNote, onToggleDone }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const cardRef = useRef(null);
   const status = deriveStatus(ex);
@@ -805,11 +805,13 @@ function ExerciseCard({ ex, history, note, onOpenLive, onSaveNote, onDeleteNote 
   return (
     <article
       ref={cardRef}
-      onClick={openLive}
+      onClick={!done ? openLive : undefined}
       style={{
         padding: '22px 22px 20px',
         borderBottom: '1px solid var(--hair-2)',
-        position: 'relative', cursor: 'pointer',
+        position: 'relative', cursor: done ? 'default' : 'pointer',
+        opacity: done ? 0.55 : 1,
+        transition: 'opacity 200ms ease',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
@@ -835,12 +837,30 @@ function ExerciseCard({ ex, history, note, onOpenLive, onSaveNote, onDeleteNote 
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 18 }}>
-        <span className="tap" style={{
-          padding: '0 22px', height: 44, borderRadius: 6,
-          background: 'var(--accent)', color: '#FFFFFF',
-          fontSize: 13, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
-          whiteSpace: 'nowrap',
-        }}>Log Session</span>
+        {!done && (
+          <span className="tap" style={{
+            padding: '0 22px', height: 44, borderRadius: 6,
+            background: 'var(--accent)', color: '#FFFFFF',
+            fontSize: 13, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
+            whiteSpace: 'nowrap',
+          }}>Log Session</span>
+        )}
+        {onToggleDone && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleDone(ex.id); }}
+            className="tap"
+            style={{
+              padding: '0 14px', height: 44, borderRadius: 6,
+              background: done ? 'var(--accent)' : 'var(--paper-2)',
+              color: done ? '#fff' : 'var(--muted)',
+              border: done ? 'none' : '0.5px solid var(--card-border)',
+              fontSize: 13, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
+              whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            {done ? '✓ Done' : 'Done'}
+          </button>
+        )}
         <div style={{ flex: 1 }} />
         <button onClick={(e) => { e.stopPropagation(); setHistoryOpen(o => !o); }} className="tap"
           style={{ padding: '0 10px', height: 44, fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600 }}>

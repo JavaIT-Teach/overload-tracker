@@ -486,6 +486,14 @@ function App() {
 
   const clearDoneIds = () => updateDoneIds(new Set());
 
+  const toggleDone = (exId) => {
+    updateDoneIds(prev => {
+      const next = new Set(prev);
+      if (next.has(exId)) next.delete(exId); else next.add(exId);
+      return next;
+    });
+  };
+
   // Stamp a progression marker on the most recent session of an exercise.
   function stampProgression(sessions, exId, marker) {
     const next = { ...sessions };
@@ -1032,6 +1040,7 @@ function App() {
                 onOpenLive={(exId, rect) => setLiveEx({ exId, originRect: rect })}
                 onSaveNote={saveExerciseNote}
                 onDeleteNote={deleteExerciseNote}
+                onToggleDone={toggleDone}
               />
             </div>
           );
@@ -1341,6 +1350,34 @@ function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImpo
       }}>
         Reset all data
       </button>
+    </div>
+  );
+}
+
+function ProgressionTypeToggle({ value, onChange }) {
+  const opts = [
+    { id: 'load', label: 'Load' },
+    { id: 'reps', label: 'Reps' },
+    { id: 'none', label: 'None' },
+  ];
+  return (
+    <div style={{ display: 'flex', gap: 6 }}>
+      {opts.map(o => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          className="tap"
+          style={{
+            flex: 1, height: 32, borderRadius: 5,
+            background: value === o.id ? 'var(--accent)' : 'var(--paper-2)',
+            color: value === o.id ? '#fff' : 'var(--ink-2)',
+            border: value === o.id ? 'none' : '0.5px solid var(--card-border)',
+            fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em',
+            textTransform: 'uppercase', fontWeight: 600,
+          }}
+        >{o.label}</button>
+      ))}
     </div>
   );
 }
