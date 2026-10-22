@@ -3,6 +3,48 @@
 
 const STORAGE_KEY = 'pol_tracker_v1';
 const PALETTE_KEY = 'pol_palette_v1';
+const SYNC_KEY    = 'pol_sync_v1';
+
+// ── GitHub sync helpers ───────────────────────────────────────
+const SYNC_OWNER = 'JavaIT-Teach';
+const SYNC_REPO  = 'overload-data';
+const SYNC_FILE  = 'tracker.json';
+
+function syncCfg()      { try { return JSON.parse(localStorage.getItem(SYNC_KEY)) || null; } catch(e) { return null; } }
+function setSyncCfg(c)  { try { if (c) localStorage.setItem(SYNC_KEY, JSON.stringify(c)); else localStorage.removeItem(SYNC_KEY); } catch(e) {} }
+function patchSyncCfg(p){ const c = syncCfg(); if (c) setSyncCfg(Object.assign(c, p)); }
+
+function b64enc(str) {
+  const bytes = new TextEncoder().encode(str); let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+function b64dec(b64) { const bin = atob(b64.replace(/\s/g,'')); return new TextDecoder().decode(Uint8Array.from(bin, ch => ch.charCodeAt(0))); }
+
+function ghFetch(token, method, path, body) {
+  const headers = { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  if (body) headers['Content-Type'] = 'application/json';
+  return fetch('https://api.github.com' + path, { method, headers, cache: 'no-store', body: body ? JSON.stringify(body) : undefined });
+}
+function ghFilePath(c) { return `/repos/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.repo)}/contents/${SYNC_FILE}`; }
+
+async function ghRead(c) {
+  const r = await ghFetch(c.token, 'GET', ghFilePath(c));
+  if (r.status === 404) return null;
+  if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+  const meta = await r.json();
+  let text;
+  if (meta.encoding === 'base64' && meta.content) {
+    text = b64dec(meta.content);
+  } else {
+    const r2 = await ghFetch(c.token, 'GET', ghFilePath(c) + '?t=' + Date.now());
+    if (!r2.ok) throw new Error('HTTP ' + r2.status);
+    text = await r2.text();
+  }
+  let data = null; try { data = JSON.parse(text); } catch(e) {}
+  if (!data || !data.days) return null;
+  return { sha: meta.sha, data };
+}
 
 const PALETTES = [
   {
@@ -443,6 +485,103 @@ function App() {
   React.useEffect(() => { applyPalette(palette); }, [palette]);
   const setPalette = (id) => { setPaletteId(id); localStorage.setItem(PALETTE_KEY, id); };
 
+  // ── GitHub sync state ─────────────────────────────────────
+  const [sync, setSync] = useState(() => ({ status: syncCfg() ? 'pending' : 'off', msg: '', at: null }));
+  const [syncConflict, setSyncConflict] = useState(null);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncToken, setSyncToken] = useState('');
+  const [showSync, setShowSync] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const syncingRef = React.useRef(false);
+  const syncAgainRef = React.useRef(false);
+  const pushTimerRef = React.useRef(null);
+  const lastPullRef = React.useRef(0);
+
+  const setSyncStatus = (status, msg) => setSync({ status, msg: msg || '', at: Date.now() });
+
+  const applyRemoteData = React.useCallback((remote) => {
+    const merged = reconcileStore(remote.data);
+    saveStore(merged);
+    patchSyncCfg({ sha: remote.sha, dirty: false });
+    setStore(merged);
+    setSyncConflict(null);
+    setSyncStatus('ok');
+  }, []);
+
+  const syncFail = (e) => {
+    let msg;
+    if (!e.status) msg = 'No internet. Saved in this browser. Will send to GitHub when back online.';
+    else if (e.status === 401) msg = 'Your GitHub key does not work. Paste a new one in Sync settings.';
+    else if (e.status === 403 || e.status === 404) msg = 'GitHub would not let the app in. Check the key has read/write access to overload-data.';
+    else msg = 'GitHub did not answer. Saved locally. Will try again.';
+    setSyncStatus('error', msg);
+  };
+
+  const doSyncOnce = React.useCallback(async (depth = 0) => {
+    let c = syncCfg(); if (!c) return;
+    const remote = await ghRead(c);
+    lastPullRef.current = Date.now();
+    c = syncCfg(); if (!c) return;
+    if (remote && remote.sha !== c.sha) {
+      if (!c.dirty) { applyRemoteData(remote); return; }
+      if (JSON.stringify(remote.data) === JSON.stringify(store)) { patchSyncCfg({ sha: remote.sha, dirty: false }); setSyncStatus('ok'); return; }
+      setSyncConflict(remote); setSyncStatus('conflict'); return;
+    }
+    if (!c.dirty && remote) { setSyncStatus('ok'); return; }
+    setSyncStatus('saving');
+    const now = new Date();
+    const label = now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' + now.toTimeString().slice(0,5);
+    const storeSnap = store;
+    const body = { message: `Tracker saved ${label}`, content: b64enc(JSON.stringify(storeSnap)) };
+    if (remote) body.sha = remote.sha;
+    const r = await ghFetch(c.token, 'PUT', ghFilePath(c), body);
+    if ((r.status === 409 || r.status === 422) && depth < 2) { await doSyncOnce(depth + 1); return; }
+    if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+    const j = await r.json();
+    patchSyncCfg({ sha: j.content.sha, dirty: false });
+    setSyncStatus('ok');
+  }, [store, applyRemoteData]);
+
+  const syncNow = React.useCallback(async () => {
+    if (!syncCfg() || syncConflict) return;
+    if (syncingRef.current) { syncAgainRef.current = true; return; }
+    syncingRef.current = true;
+    clearTimeout(pushTimerRef.current);
+    try { await doSyncOnce(0); }
+    catch(e) { syncFail(e); }
+    finally {
+      syncingRef.current = false;
+      if (syncAgainRef.current) { syncAgainRef.current = false; syncNow(); }
+    }
+  }, [doSyncOnce, syncConflict]);
+
+  const queuePush = React.useCallback(() => {
+    if (!syncCfg() || syncConflict) return;
+    clearTimeout(pushTimerRef.current);
+    pushTimerRef.current = setTimeout(() => syncNow(), 8000);
+    setSync(s => s.status !== 'saving' && s.status !== 'error' ? { ...s, status: 'pending' } : s);
+  }, [syncNow, syncConflict]);
+
+  const markDirty = React.useCallback(() => {
+    patchSyncCfg({ dirty: true });
+    queuePush();
+  }, [queuePush]);
+
+  // Sync on mount, tab focus, and back online
+  React.useEffect(() => {
+    if (syncCfg()) syncNow();
+    const onVis = () => { if (syncCfg() && !syncConflict) syncNow(); };
+    const onOnline = () => { if (syncCfg()) syncNow(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('online', onOnline);
+    const iv = setInterval(() => {
+      const c = syncCfg();
+      if (!c || syncConflict) return;
+      if (c.dirty || Date.now() - lastPullRef.current > 5 * 60000) syncNow();
+    }, 60000);
+    return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('online', onOnline); clearInterval(iv); };
+  }, []);
+
   const [editMode, setEditMode] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
@@ -538,14 +677,17 @@ function App() {
     updateDoneIds(new Set());
   }, [activeDay]);
 
-  // Persist on every change
-  useEffect(() => { saveStore(store); }, [store]);
+  // Persist on every change and queue GitHub push
+  useEffect(() => {
+    saveStore(store);
+    if (store.updatedAt) markDirty();
+  }, [store]);
   useEffect(() => { localStorage.setItem('pol_active_day', activeDay); }, [activeDay]);
 
   const day = store.days.find(d => d.id === activeDay) || store.days[0];
 
   const updateDays = (mutator) => {
-    setStore(s => ({ ...s, days: mutator(s.days) }));
+    setStore(s => ({ ...s, days: mutator(s.days), updatedAt: Date.now() }));
   };
 
   // ── Mutations ────────────────────────────────────────────────
@@ -577,6 +719,7 @@ function App() {
       const dayRot = rot[day.id] || { count: 0 };
       return {
         ...s,
+        updatedAt: Date.now(),
         sessions: {
           ...s.sessions,
           [exId]: [...(s.sessions[exId] || []), entry],
@@ -649,7 +792,7 @@ function App() {
         }),
       }));
       const sessions = marker ? stampProgression(s.sessions, exId, marker) : s.sessions;
-      return { ...s, days, sessions };
+      return { ...s, days, sessions, updatedAt: Date.now() };
     });
   };
 
@@ -1014,6 +1157,18 @@ function App() {
                 padding: '8px 0',
               }}
             >Export</button>
+            <button
+              onClick={() => setShowSync(true)}
+              className="tap"
+              title={sync.msg || sync.status}
+              style={{ padding: '8px 0', display: 'flex', alignItems: 'center', gap: 5 }}
+            >
+              <span style={{
+                width: 7, height: 7, borderRadius: '50%', display: 'inline-block', flexShrink: 0,
+                background: sync.status === 'ok' ? '#3CCB8F' : sync.status === 'error' || sync.status === 'conflict' ? '#FF8A80' : sync.status === 'off' ? '#8A8A94' : '#FFB020',
+              }} />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em', color: 'var(--ink-2)', textTransform: 'uppercase' }}>Sync</span>
+            </button>
           </div>
 
           {/* Title + subtitle + Edit button */}
@@ -1202,6 +1357,52 @@ function App() {
         <ExportSheet
           store={store}
           onClose={() => setShowExport(false)}
+        />
+      )}
+
+      {syncConflict && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 200,
+          padding: '14px 18px', background: '#FEF3C7', borderBottom: '1px solid #F59E0B',
+        }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: '#92400E', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Sync conflict — choose which copy to keep</div>
+          <div style={{ fontSize: 13, color: '#78350F', marginBottom: 10 }}>
+            GitHub has a version saved {syncConflict.data.updatedAt ? new Date(syncConflict.data.updatedAt).toLocaleString() : 'earlier'}.
+            This browser has unsaved changes.
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="tap" onClick={() => { applyRemoteData(syncConflict); }} style={{ flex: 1, height: 40, borderRadius: 6, background: '#F59E0B', color: '#fff', fontWeight: 600, fontSize: 13 }}>Use GitHub copy</button>
+            <button className="tap" onClick={() => { patchSyncCfg({ sha: syncConflict.sha, dirty: true }); setSyncConflict(null); syncNow(); }} style={{ flex: 1, height: 40, borderRadius: 6, background: '#78350F', color: '#fff', fontWeight: 600, fontSize: 13 }}>Keep this device</button>
+          </div>
+        </div>
+      )}
+
+      {showSync && (
+        <SyncSheet
+          sync={sync}
+          syncToken={syncToken}
+          setSyncToken={setSyncToken}
+          syncBusy={syncBusy}
+          confirmDisconnect={confirmDisconnect}
+          setConfirmDisconnect={setConfirmDisconnect}
+          onConnect={async () => {
+            const token = syncToken.trim();
+            if (!token) return;
+            setSyncBusy(true);
+            try {
+              const r = await ghFetch(token, 'GET', `/repos/${encodeURIComponent(SYNC_OWNER)}/${encodeURIComponent(SYNC_REPO)}`);
+              if (r.status === 401) { setSyncStatus('error', 'This key does not work. Check that you copied all of it.'); setSyncBusy(false); return; }
+              if (!r.ok) { setSyncStatus('error', `Cannot access ${SYNC_OWNER}/${SYNC_REPO}. Check the key has Contents read+write permission.`); setSyncBusy(false); return; }
+              setSyncCfg({ owner: SYNC_OWNER, repo: SYNC_REPO, token, sha: null, dirty: true });
+              setSyncToken('');
+              setSyncBusy(false);
+              setSyncStatus('pending');
+              await syncNow();
+            } catch(e) { setSyncStatus('error', 'No internet. Try again when online.'); setSyncBusy(false); }
+          }}
+          onDisconnect={() => { clearTimeout(pushTimerRef.current); setSyncCfg(null); setConfirmDisconnect(false); setSyncConflict(null); setSyncStatus('off'); }}
+          onSyncNow={syncNow}
+          onClose={() => setShowSync(false)}
         />
       )}
 
@@ -1396,6 +1597,103 @@ function ExportLauncherButton({ onOpen }) {
       >
         Send to Email
       </button>
+    </div>
+  );
+}
+
+// ── Sync sheet ────────────────────────────────────────────────
+function SyncSheet({ sync, syncToken, setSyncToken, syncBusy, confirmDisconnect, setConfirmDisconnect, onConnect, onDisconnect, onSyncNow, onClose }) {
+  const c = syncCfg();
+  const connected = !!c;
+  const st = sync.status;
+  const dotColor = st === 'ok' ? '#3CCB8F' : st === 'error' || st === 'conflict' ? '#FF8A80' : st === 'off' ? '#8A8A94' : '#FFB020';
+  const statusText = { off: 'Not connected', pending: 'Changes not sent yet', saving: 'Saving to GitHub…', ok: `Saved · ${sync.at ? new Date(sync.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : ''}`, conflict: 'Conflict — choose which copy', error: 'Error' }[st] || st;
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 100,
+      background: 'var(--paper)', overflowY: 'auto',
+      display: 'flex', flexDirection: 'column',
+    }}>
+      <div style={{ padding: '18px 20px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--hair)' }}>
+        <button onClick={onClose} className="tap" style={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-2)' }}>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12.5 4.5L6 10l6.5 5.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </button>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700 }}>GitHub Sync</span>
+        <span style={{ flex: 1 }} />
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, display: 'inline-block' }} />
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>{statusText}</span>
+      </div>
+
+      <div style={{ padding: '24px 20px 40px', flex: 1 }}>
+        {connected ? (
+          <div>
+            <div style={{ padding: '16px 18px', background: 'var(--card-bg)', borderRadius: 10, marginBottom: 20 }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.10em', textTransform: 'uppercase', marginBottom: 4 }}>Syncing to</div>
+              <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--ink)' }}>{c.owner}/{c.repo}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>tracker.json · private repository</div>
+            </div>
+
+            {sync.msg ? (
+              <div style={{ padding: '12px 16px', background: st === 'error' ? '#FDE3E3' : '#DDF3EC', borderRadius: 8, marginBottom: 20, fontSize: 13, color: st === 'error' ? '#A32020' : '#0F6B55' }}>{sync.msg}</div>
+            ) : null}
+
+            <button onClick={onSyncNow} className="tap" style={{ width: '100%', height: 48, borderRadius: 8, background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 14, marginBottom: 12 }}>
+              Sync now
+            </button>
+
+            {!confirmDisconnect ? (
+              <button onClick={() => setConfirmDisconnect(true)} className="tap" style={{ width: '100%', height: 44, borderRadius: 8, border: '1px solid var(--hair)', fontSize: 13, color: 'var(--muted)', fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                Disconnect
+              </button>
+            ) : (
+              <div style={{ padding: '16px 18px', background: '#FDE3E3', borderRadius: 10 }}>
+                <div style={{ fontSize: 14, color: '#A32020', marginBottom: 12 }}>Data stays on GitHub and in this browser. You can reconnect any time.</div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={() => setConfirmDisconnect(false)} className="tap" style={{ flex: 1, height: 44, borderRadius: 8, border: '1px solid var(--hair)', fontSize: 13, color: 'var(--muted)' }}>Cancel</button>
+                  <button onClick={onDisconnect} className="tap" style={{ flex: 1, height: 44, borderRadius: 8, background: '#C0392B', color: '#fff', fontWeight: 600, fontSize: 13 }}>Disconnect</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 15, color: 'var(--ink)', lineHeight: 1.5, marginBottom: 20 }}>
+              Your workouts save to <strong>JavaIT-Teach/overload-data</strong> (private repo) using a GitHub Personal Access Token.
+              The token stays in this browser only — it is never sent anywhere else.
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.10em', textTransform: 'uppercase', marginBottom: 6 }}>Personal Access Token</div>
+              <input
+                type="password"
+                value={syncToken}
+                onChange={e => setSyncToken(e.target.value)}
+                placeholder="ghp_…"
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', fontSize: 15, color: 'var(--ink)', fontFamily: 'monospace', outline: 'none' }}
+              />
+            </div>
+
+            <div style={{ padding: '12px 16px', background: 'var(--paper-2)', borderRadius: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 20 }}>
+              Create a token at <strong>github.com → Settings → Developer settings → Personal access tokens → Fine-grained</strong>.
+              Set repository access to <strong>overload-data</strong> only, with <strong>Contents: Read and write</strong>.
+            </div>
+
+            {sync.msg ? (
+              <div style={{ padding: '12px 16px', background: '#FDE3E3', borderRadius: 8, marginBottom: 16, fontSize: 13, color: '#A32020' }}>{sync.msg}</div>
+            ) : null}
+
+            <button
+              onClick={onConnect}
+              disabled={syncBusy || !syncToken.trim()}
+              className="tap"
+              style={{ width: '100%', height: 48, borderRadius: 8, background: 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 14, opacity: (syncBusy || !syncToken.trim()) ? 0.5 : 1 }}
+            >
+              {syncBusy ? 'Connecting…' : 'Connect'}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
