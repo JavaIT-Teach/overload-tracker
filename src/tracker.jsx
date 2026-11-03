@@ -142,7 +142,7 @@ function ChoiceRow({ label, options, value, onPick, formatter, unit, optimum, al
               value={customStr}
               onFocus={() => onTyping && onTyping(true)}
               onChange={e => {
-                const raw = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1');
+                const raw = e.target.value.replace(/[^0-9.]/g, '');
                 setCustomStr(raw);
                 const v = parseFloat(raw);
                 if (Number.isFinite(v) && v >= 0) onPick(v);
@@ -283,6 +283,7 @@ function clusterTriggersProgression(sets) {
 function ClusterLoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustomWeight, onAddCustomWeight, onSwitchToPlain }) {
   const restDuration = ex.restSeconds || 30;
   const bodyweight = ex.unit === '' && ex.weightMin === 0 && ex.weightMax === 0;
+  const [logUnit, setLogUnit] = useState(ex.unit || 'lbs');
 
   const [sessionCustoms, setSessionCustoms] = useState([]);
   const allCustoms = useMemo(() => {
@@ -337,7 +338,7 @@ function ClusterLoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCust
     if (miniSets.length === 0) { onCancel(); return; }
     const w = weight ?? 0;
     const sets = miniSets.map(s => ({ reps: s.reps, weight: w }));
-    onDone(sets, { clusterMode: true });
+    onDone(sets, { clusterMode: true, unit: logUnit });
   };
 
   const setNum = miniSets.length + 1;
@@ -347,16 +348,29 @@ function ClusterLoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCust
     return (
       <div className="reveal" style={{ paddingTop: 18 }}>
         <HairlineHeading kicker="Log session" />
+        {!bodyweight && (
+          <div style={{ display: 'flex', gap: 6, paddingTop: 12, paddingBottom: 4 }}>
+            {['lbs','kg'].map(u => (
+              <button key={u} onClick={() => setLogUnit(u)} className="tap" style={{
+                padding: '4px 12px', borderRadius: 4,
+                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em', textTransform: 'uppercase',
+                background: logUnit === u ? 'var(--accent)' : 'transparent',
+                color: logUnit === u ? '#fff' : 'var(--muted)',
+                border: logUnit === u ? 'none' : '1px solid var(--hair)',
+              }}>{u}</button>
+            ))}
+          </div>
+        )}
         <div style={{ paddingTop: 16 }}>
           <ChoiceRow
-            label={`Weight${ex.unit ? ` (${ex.unit})` : ''}`}
+            label={`Weight${logUnit ? ` (${logUnit})` : ''}`}
             options={weightOptions}
             value={weight}
             onPick={setWeight}
             formatter={fmt}
             optimum={[ex.weightMin, ex.weightMax]}
             allowCustom
-            unit={ex.unit}
+            unit={logUnit}
             customOptions={customWeightSet}
             onRemoveOption={onRemoveCustomWeight}
             onCommitCustom={handleCommitCustom}
@@ -491,6 +505,7 @@ function PlainLoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustom
   const repOptions = useMemo(() => repButtonRange(ex), [ex]);
   const repWord = ex.repUnit || 'reps';
   const repLabel = repWord.charAt(0).toUpperCase() + repWord.slice(1);
+  const [logUnit, setLogUnit] = useState(ex.unit || 'lbs');
 
   const [sessionCustoms, setSessionCustoms] = useState([]);
   const allCustoms = useMemo(() => {
@@ -540,6 +555,19 @@ function PlainLoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustom
           color: 'var(--muted)', textTransform: 'uppercase',
         }}>← Switch to cluster</button>
       </HairlineHeading>
+      {!bodyweight && (
+        <div style={{ display: 'flex', gap: 6, paddingTop: 12, paddingBottom: 4 }}>
+          {['lbs','kg'].map(u => (
+            <button key={u} onClick={() => setLogUnit(u)} className="tap" style={{
+              padding: '4px 12px', borderRadius: 4,
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em', textTransform: 'uppercase',
+              background: logUnit === u ? 'var(--accent)' : 'transparent',
+              color: logUnit === u ? '#fff' : 'var(--muted)',
+              border: logUnit === u ? 'none' : '1px solid var(--hair)',
+            }}>{u}</button>
+          ))}
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 22, paddingTop: 16 }}>
         {sets.map((s, i) => {
           const isActive = i === activeSet;
@@ -556,7 +584,7 @@ function PlainLoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustom
                 }}>Set {i + 1}</span>
                 {done && (
                   <span className="num" style={{ fontSize: 13, color: 'var(--ink-2)' }}>
-                    {s.reps} {repWord} · {fmt(s.weight)}{ex.unit ? ' ' + ex.unit : ''}
+                    {s.reps} {repWord} · {fmt(s.weight)}{logUnit ? ' ' + logUnit : ''}
                   </span>
                 )}
                 <span style={{ flex: 1, height: 1, background: 'var(--hair-2)', alignSelf: 'center' }} />
@@ -572,14 +600,14 @@ function PlainLoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustom
                   />
                   {!bodyweight && (
                     <ChoiceRow
-                      label={`Weight${ex.unit ? ` (${ex.unit})` : ''}`}
+                      label={`Weight${logUnit ? ` (${logUnit})` : ''}`}
                       options={weightOptions}
                       value={s.weight}
                       onPick={(v) => updateSet(i, { weight: v })}
                       formatter={fmt}
                       optimum={[ex.weightMin, ex.weightMax]}
                       allowCustom
-                      unit={ex.unit}
+                      unit={logUnit}
                       customOptions={customWeightSet}
                       onRemoveOption={onRemoveCustomWeight}
                       onCommitCustom={handleCommitCustom}
@@ -987,8 +1015,7 @@ function NumField({ label, value, onChange, step = 1, min, max }) {
         pattern="[0-9]*\.?[0-9]*"
         value={str}
         onChange={e => {
-          const raw = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1');
-          setStr(raw);
+          setStr(e.target.value.replace(/[^0-9.]/g, ''));
         }}
         onBlur={e => commit(e.target.value)}
         style={{ width: '100%', height: 38, border: '1px solid var(--hair)', borderRadius: 4, padding: '0 8px', background: 'var(--paper)', fontSize: 14, outline: 'none', color: 'var(--ink)' }}

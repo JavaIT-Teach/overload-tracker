@@ -640,18 +640,8 @@ function App() {
 
     const update = () => {
       const y = Math.max(0, window.scrollY || 0);
-      const dy = y - last;
-
-      // Always reveal near the top of the page
-      if (y < 40) {
-        setTopBarHidden(false);
-      } else if (dy > 6) {
-        // Scrolling down — hide
-        setTopBarHidden(true);
-      } else if (dy < -6) {
-        // Scrolling up — reveal
-        setTopBarHidden(false);
-      }
+      // Show header only when near the very top, hide everywhere else
+      setTopBarHidden(y > 20);
       last = y;
       ticking = false;
     };
@@ -1144,16 +1134,6 @@ function App() {
               color: 'var(--muted)', textTransform: 'uppercase',
             }}>Progressive Overload</div>
             <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
-            {/* kg / lbs toggle */}
-            {['lbs','kg'].map(u => (
-              <button key={u} onClick={() => { setWeightUnit(u); saveUnit(u); }} className="tap" style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
-                textTransform: 'uppercase', padding: '4px 7px', borderRadius: 4,
-                background: weightUnit === u ? 'var(--accent)' : 'transparent',
-                color: weightUnit === u ? '#fff' : 'var(--muted)',
-                border: weightUnit === u ? 'none' : '1px solid var(--hair)',
-              }}>{u}</button>
-            ))}
             <button
               onClick={() => setShowHistory(true)}
               className="tap"
@@ -1316,7 +1296,7 @@ function App() {
                 }}>Not this week</div>
               )}
               <ExerciseCard
-                ex={{ ...ex, unit: weightUnit }}
+                ex={ex}
                 history={store.sessions[ex.id] || []}
                 note={note}
                 done={doneIds.has(ex.id)}
