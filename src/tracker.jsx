@@ -135,15 +135,16 @@ function ChoiceRow({ label, options, value, onPick, formatter, unit, optimum, al
             transition: 'background 120ms ease, border-color 120ms ease',
           }}>
             <input
-              type="number"
+              type="text"
               inputMode="decimal"
-              step="any"
+              pattern="[0-9]*\.?[0-9]*"
               placeholder="Custom"
               value={customStr}
               onFocus={() => onTyping && onTyping(true)}
               onChange={e => {
-                setCustomStr(e.target.value);
-                const v = parseFloat(e.target.value);
+                const raw = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1');
+                setCustomStr(raw);
+                const v = parseFloat(raw);
                 if (Number.isFinite(v) && v >= 0) onPick(v);
               }}
               onBlur={e => { onTyping && onTyping(false); commitCustom(e.target.value); }}
@@ -153,7 +154,6 @@ function ChoiceRow({ label, options, value, onPick, formatter, unit, optimum, al
                 border: 'none', outline: 'none', background: 'transparent',
                 fontSize: 16, fontWeight: 500,
                 color: isCustom ? 'var(--paper)' : 'var(--ink)',
-                MozAppearance: 'textfield',
               }}
             />
             {unit && (
@@ -982,11 +982,14 @@ function NumField({ label, value, onChange, step = 1, min, max }) {
     <div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
       <input
-        type="number"
+        type="text"
         inputMode="decimal"
+        pattern="[0-9]*\.?[0-9]*"
         value={str}
-        step={step}
-        onChange={e => setStr(e.target.value)}
+        onChange={e => {
+          const raw = e.target.value.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1');
+          setStr(raw);
+        }}
         onBlur={e => commit(e.target.value)}
         style={{ width: '100%', height: 38, border: '1px solid var(--hair)', borderRadius: 4, padding: '0 8px', background: 'var(--paper)', fontSize: 14, outline: 'none', color: 'var(--ink)' }}
       />

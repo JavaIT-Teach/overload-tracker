@@ -471,12 +471,17 @@ function writeDoneIds(idSet) {
   }
 }
 
+const UNIT_KEY = 'pol_unit_v1';
+function loadUnit() { return localStorage.getItem(UNIT_KEY) === 'kg' ? 'kg' : 'lbs'; }
+function saveUnit(u) { localStorage.setItem(UNIT_KEY, u); }
+
 // ── Root app ─────────────────────────────────────────────────
 function App() {
   const [store, setStore] = useState(() => {
     const loaded = loadStore();
     return loaded ? reconcileStore(loaded) : freshStore();
   });
+  const [weightUnit, setWeightUnit] = useState(loadUnit);
   const [activeDay, setActiveDay] = useState(() => {
     const saved = parseInt(localStorage.getItem('pol_active_day'), 10);
     return Number.isFinite(saved) ? saved : 1;
@@ -1139,6 +1144,16 @@ function App() {
               color: 'var(--muted)', textTransform: 'uppercase',
             }}>Progressive Overload</div>
             <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
+            {/* kg / lbs toggle */}
+            {['lbs','kg'].map(u => (
+              <button key={u} onClick={() => { setWeightUnit(u); saveUnit(u); }} className="tap" style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+                textTransform: 'uppercase', padding: '4px 7px', borderRadius: 4,
+                background: weightUnit === u ? 'var(--accent)' : 'transparent',
+                color: weightUnit === u ? '#fff' : 'var(--muted)',
+                border: weightUnit === u ? 'none' : '1px solid var(--hair)',
+              }}>{u}</button>
+            ))}
             <button
               onClick={() => setShowHistory(true)}
               className="tap"
@@ -1301,7 +1316,7 @@ function App() {
                 }}>Not this week</div>
               )}
               <ExerciseCard
-                ex={ex}
+                ex={{ ...ex, unit: weightUnit }}
                 history={store.sessions[ex.id] || []}
                 note={note}
                 done={doneIds.has(ex.id)}
