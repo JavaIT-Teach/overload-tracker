@@ -142,7 +142,7 @@ function ChoiceRow({ label, options, value, onPick, formatter, unit, optimum, al
               value={customStr}
               onFocus={() => onTyping && onTyping(true)}
               onChange={e => {
-                const raw = e.target.value.replace(/[^0-9.]/g, '');
+                const raw = e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.');
                 setCustomStr(raw);
                 const v = parseFloat(raw);
                 if (Number.isFinite(v) && v >= 0) onPick(v);
@@ -1015,7 +1015,7 @@ function NumField({ label, value, onChange, step = 1, min, max }) {
         pattern="[0-9]*\.?[0-9]*"
         value={str}
         onChange={e => {
-          setStr(e.target.value.replace(/[^0-9.]/g, ''));
+          setStr(e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.'));
         }}
         onBlur={e => commit(e.target.value)}
         style={{ width: '100%', height: 38, border: '1px solid var(--hair)', borderRadius: 4, padding: '0 8px', background: 'var(--paper)', fontSize: 14, outline: 'none', color: 'var(--ink)' }}
