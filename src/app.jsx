@@ -686,7 +686,7 @@ function App() {
   };
 
   // ── Mutations ────────────────────────────────────────────────
-  const logSession = (exId, { sets, note, clusterMode }, statusAtLog) => {
+  const logSession = (exId, { sets, note, clusterMode, unit }, statusAtLog) => {
     const ex = findEx(store, exId);
     if (!ex) return;
     const entry = {
@@ -694,7 +694,7 @@ function App() {
       sets,
       note: note || '',
       status: statusAtLog,
-      unit: ex.unit,
+      unit: unit !== undefined ? unit : ex.unit,
       target: targetString(ex),
       clusterMode: clusterMode || false,
     };

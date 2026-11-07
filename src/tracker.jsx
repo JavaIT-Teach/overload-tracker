@@ -414,7 +414,7 @@ function ClusterLoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCust
           <span className="num" style={{
             fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--accent)',
             fontWeight: 700, letterSpacing: '0.06em',
-          }}>{fmt(weight)}{ex.unit ? ' ' + ex.unit : ''}</span>
+          }}>{fmt(weight)}{logUnit ? ' ' + logUnit : ''}</span>
         )}
       </HairlineHeading>
 
@@ -628,7 +628,7 @@ function PlainLoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustom
           fontSize: 14, fontWeight: 500,
         }}>Cancel</button>
         <button
-          onClick={() => { if (typing) return; if (allLogged) onDone(sets); }}
+          onClick={() => { if (typing) return; if (allLogged) onDone(sets, { unit: logUnit }); }}
           disabled={!allLogged}
           className="tap" style={{
           flex: 2, height: 48, borderRadius: 6,
@@ -1114,10 +1114,11 @@ function LiveExerciseView({
 
   const handleDone = (sets, meta = {}) => {
     const clusterMode = meta.clusterMode || false;
+    const unit = meta.unit;
     if (onAddCustomWeight) {
       sets.forEach(s => { if (s.weight > 0) onAddCustomWeight(ex.id, s.weight); });
     }
-    onLog(ex.id, { sets, clusterMode }, deriveStatus(ex));
+    onLog(ex.id, { sets, clusterMode, unit }, deriveStatus(ex));
     const progTriggered = clusterMode ? clusterTriggersProgression(sets) : false;
     setJustLogged({ sets, clusterMode, progTriggered });
   };
