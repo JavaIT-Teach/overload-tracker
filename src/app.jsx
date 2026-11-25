@@ -1077,7 +1077,7 @@ function App() {
   return (
     <div className="app-scroll" style={{ background: screen === 'train' ? 'var(--paper-2)' : 'var(--paper)' }}>
       {screen === 'train' && (
-        <>
+        <div key="train" className="anim-screen">
           {/* Compact sticky header: day dropdown + edit toggle */}
           <header style={{
             position: 'sticky', top: 0, zIndex: 20,
@@ -1145,14 +1145,14 @@ function App() {
               );
             })()}
 
-            {!editMode && displayItems.map(({ ex, offWeek }) => {
+            {!editMode && displayItems.map(({ ex, offWeek }, idx) => {
               // Notes shape may be legacy array (sessionized) — normalize to {text, savedAt}
               const rawNote = store.notes && store.notes[ex.id];
               const note = Array.isArray(rawNote)
                 ? (rawNote.length ? { text: rawNote[rawNote.length - 1].text, savedAt: rawNote[rawNote.length - 1].date } : null)
                 : (rawNote && rawNote.text ? rawNote : null);
               return (
-                <div key={ex.id} style={{ marginBottom: 12, position: 'relative', ...(offWeek ? { opacity: 0.4, pointerEvents: 'none' } : {}) }}>
+                <div key={`${activeDay}-${ex.id}`} className="anim-card" style={{ '--i': Math.min(idx, 8), marginBottom: 12, position: 'relative', ...(offWeek ? { opacity: 0.4, pointerEvents: 'none' } : {}) }}>
                   {offWeek && (
                     <div style={{
                       position: 'absolute', top: 12, right: 16, zIndex: 1,
@@ -1175,7 +1175,7 @@ function App() {
             })}
 
             {editMode && (
-              <div style={{ background: 'var(--paper)', borderRadius: 'var(--card-radius)', border: '1px solid var(--card-border)' }}>
+              <div className="anim-card" style={{ background: 'var(--paper)', borderRadius: 'var(--card-radius)', border: '1px solid var(--card-border)' }}>
                 <EditPane
                   day={day}
                   dayIndex={store.days.findIndex(d => d.id === day.id)}
@@ -1188,15 +1188,15 @@ function App() {
               </div>
             )}
           </main>
-        </>
+        </div>
       )}
 
       {screen === 'stats' && (
-        <ScreenMode><StatsSheet store={store} onClose={() => setScreen('train')} /></ScreenMode>
+        <div key="stats" className="anim-screen"><ScreenMode><StatsSheet store={store} onClose={() => setScreen('train')} /></ScreenMode></div>
       )}
 
       {screen === 'history' && (
-        <ScreenMode>
+        <div key="history" className="anim-screen"><ScreenMode>
           <HistorySheet
             store={store}
             onEditSets={editHistorySets}
@@ -1204,18 +1204,18 @@ function App() {
             onRemoveSession={removeHistorySession}
             onClose={() => setScreen('train')}
           />
-        </ScreenMode>
+        </ScreenMode></div>
       )}
 
       {screen === 'settings' && (
-        <SettingsScreen
+        <div key="settings" className="anim-screen"><SettingsScreen
           sync={sync}
           onOpenSync={() => setShowSync(true)}
           palette={palette}
           onPaletteChange={setPalette}
           onShowImport={() => setShowImport(true)}
           onReset={resetAll}
-        />
+        /></div>
       )}
 
       {/* Sheets */}
@@ -2602,7 +2602,13 @@ function TabBar({ screen, onPick }) {
       background: 'var(--paper)', borderTop: '1px solid var(--hair)',
       paddingBottom: 'env(safe-area-inset-bottom, 0px)',
     }}>
-      <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex' }}>
+      <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', position: 'relative' }}>
+        <span aria-hidden="true" style={{
+          position: 'absolute', top: -1, height: 2, width: '12.5%', borderRadius: 2,
+          background: 'var(--accent)',
+          left: `${tabs.findIndex(t => t[0] === screen) * 25 + 6.25}%`,
+          transition: 'left 280ms cubic-bezier(.2,.7,.3,1)',
+        }} />
         {tabs.map(([id, label]) => {
           const on = screen === id;
           return (
@@ -2612,6 +2618,7 @@ function TabBar({ screen, onPick }) {
                 color: on ? 'var(--accent)' : 'var(--muted)',
               }}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                style={{ transform: on ? 'translateY(-1px) scale(1.08)' : 'none', transition: 'transform 220ms cubic-bezier(.2,.7,.3,1)' }}
                 strokeWidth={on ? 2 : 1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 {ICONS[id]}
               </svg>
@@ -2642,7 +2649,7 @@ function DaySelector({ days, day, open, setOpen, onPick }) {
       {open && (
         <>
           <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 30 }} />
-          <div className="reveal" role="menu" style={{
+          <div className="anim-pop" role="menu" style={{
             position: 'absolute', top: '100%', left: -6, zIndex: 31, marginTop: 6,
             width: 'min(300px, calc(100vw - 20px))',
             background: 'var(--paper)', border: '1px solid var(--hair)', borderRadius: 12,

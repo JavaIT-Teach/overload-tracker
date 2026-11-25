@@ -865,6 +865,7 @@ function ExerciseCard({ ex, history, note, done, onOpenLive, onSaveNote, onDelet
   return (
     <article
       ref={cardRef}
+      className="press"
       onClick={!done ? openLive : undefined}
       style={{
         padding: '16px 16px 12px',
@@ -873,7 +874,6 @@ function ExerciseCard({ ex, history, note, done, onOpenLive, onSaveNote, onDelet
         boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
         position: 'relative', cursor: done ? 'default' : 'pointer',
         opacity: done ? 0.6 : 1,
-        transition: 'opacity 200ms ease',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
