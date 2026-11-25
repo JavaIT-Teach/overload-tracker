@@ -1048,6 +1048,12 @@ function App() {
   const rotFlipped = Math.floor(dayRotCount / 2) % 2 === 1;
 
   // Build display list: rotation-aware order, with off-week flag for Day 3 core alternation.
+  // Which base-order positions swap in Week B (mirrors displayItems below).
+  const rotationSwap = (() => {
+    if (day.id === 3) return exercises.length >= 3 ? [exercises[0], exercises[2]] : null;
+    return exercises.length >= 2 ? [exercises[0], exercises[1]] : null;
+  })();
+
   const displayItems = (() => {
     const items = exercises.map(ex => ({ ex, offWeek: false }));
     if (rotFlipped) {
@@ -1177,6 +1183,8 @@ function App() {
             {editMode && (
               <div className="anim-card" style={{ background: 'var(--paper)', borderRadius: 'var(--card-radius)', border: '1px solid var(--card-border)' }}>
                 <EditPane
+                  rotationSwap={rotationSwap}
+                  currentWeek={rotFlipped ? 'B' : 'A'}
                   day={day}
                   dayIndex={store.days.findIndex(d => d.id === day.id)}
                   onUpdate={updateEx}
@@ -1501,7 +1509,7 @@ function PalettePicker({ current, onChange }) {
 }
 
 // ── Edit pane ─────────────────────────────────────────────────
-function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onTogglePlateau }) {
+function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onTogglePlateau, rotationSwap, currentWeek }) {
   // Archived exercises stay in day.exercises but are hidden here too. Move
   // targets are resolved by id against the FULL array (not the filtered
   // list's position) so an up/down click always swaps with the neighboring
@@ -1523,6 +1531,13 @@ function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onTogglePl
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 11, color: 'var(--muted)' }}>Theme, import & reset are in Settings</span>
       </div>
+
+      {rotationSwap && (
+        <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 8, background: 'var(--accent-tint)', fontSize: 13, lineHeight: 1.45, color: 'var(--ink-2)' }}>
+          This is the <b>Week A</b> order. In <b>Week B</b>, <b>{rotationSwap[0].name}</b> and <b>{rotationSwap[1].name}</b> swap places.
+          {currentWeek === 'B' && <span style={{ color: 'var(--muted)' }}> This week is Week B, so the workout list shows them swapped.</span>}
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, marginTop: 20 }}>
         {exercises.map((ex, i) => {
