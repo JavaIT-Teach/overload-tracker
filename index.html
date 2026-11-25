@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Progressive Overload</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="icon-192.svg">
@@ -91,7 +91,20 @@
     .app-scroll { max-width: 100%; }
   }
 
-  .reveal { opacity: 1; }
+  /* ── Motion ─────────────────────────────────────────── */
+  @keyframes po-fade-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @keyframes po-fade    { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes po-pop     { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: none; } }
+  .anim-screen { animation: po-fade-up 280ms cubic-bezier(.2,.7,.3,1) both; }
+  .anim-card   { animation: po-fade-up 340ms cubic-bezier(.2,.7,.3,1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+  .anim-pop    { animation: po-pop 170ms cubic-bezier(.2,.7,.3,1) both; transform-origin: top left; }
+  .press { transition: transform 140ms ease, opacity 200ms ease, box-shadow 140ms ease; }
+  .press:active { transform: scale(0.985); }
+  .tap:active { opacity: 0.85; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+  .reveal { animation: po-fade 200ms ease both; }
   .reveal-slow { opacity: 1; }
 
   .rule { height: 1px; background: var(--hair); width: 100%; }
@@ -1550,9 +1563,9 @@ Object.assign(window, {
 </script>
 <!-- Cache-busting: bump ?v= on every release so phones (iOS home-screen
      apps especially) fetch the new code instead of a stale cached copy. -->
-<script type="text/babel" data-presets="react" src="src/tracker.jsx?v=2026-11-25b"></script>
-<script type="text/babel" data-presets="react" src="src/stats.jsx?v=2026-11-25b"></script>
-<script type="text/babel" data-presets="react" src="src/app.jsx?v=2026-11-25b"></script>
+<script type="text/babel" data-presets="react" src="src/tracker.jsx?v=2026-11-25d"></script>
+<script type="text/babel" data-presets="react" src="src/stats.jsx?v=2026-11-25d"></script>
+<script type="text/babel" data-presets="react" src="src/app.jsx?v=2026-11-25d"></script>
 
 
 </body>

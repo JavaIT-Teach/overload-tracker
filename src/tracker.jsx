@@ -5,17 +5,17 @@ const { useState, useEffect, useRef, useMemo, useCallback, Fragment } = React;
 // ── Small visual primitives ────────────────────────────────────
 function StatusBadge({ status }) {
   const map = {
-    developing: { label: 'Developing', fg: '#FFFFFF', bg: 'var(--st-dev)',     dot: 'rgba(255,255,255,0.85)' },
-    stable:     { label: 'Stable',     fg: '#FFFFFF', bg: 'var(--st-stable)',  dot: 'rgba(255,255,255,0.9)' },
-    plateau:    { label: 'Plateau',    fg: '#FFFFFF', bg: 'var(--st-plateau)', dot: 'rgba(255,255,255,0.9)' },
+    developing: { label: 'Developing', fg: 'var(--st-dev)',     bg: 'var(--st-dev-bg)',     dot: 'var(--st-dev)' },
+    stable:     { label: 'Stable',     fg: 'var(--st-stable)',  bg: 'var(--st-stable-bg)',  dot: 'var(--st-stable)' },
+    plateau:    { label: 'Plateau',    fg: 'var(--st-plateau)', bg: 'var(--st-plateau-bg)', dot: 'var(--st-plateau)' },
   };
   const s = map[status] || map.developing;
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 6,
-      fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
-      textTransform: 'uppercase', color: s.fg, fontWeight: 600,
-      padding: '5px 10px', borderRadius: 4,
+      fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
+      textTransform: 'uppercase', color: s.fg, fontWeight: 700,
+      padding: '5px 8px', borderRadius: 99, flexShrink: 0,
       background: s.bg, lineHeight: 1,
     }}>
       <span style={{ width: 5, height: 5, borderRadius: 999, background: s.dot }} />
@@ -865,20 +865,22 @@ function ExerciseCard({ ex, history, note, done, onOpenLive, onSaveNote, onDelet
   return (
     <article
       ref={cardRef}
+      className="press"
       onClick={!done ? openLive : undefined}
       style={{
-        padding: '22px 22px 20px',
-        borderBottom: '1px solid var(--hair-2)',
+        padding: '16px 16px 12px',
+        background: 'var(--paper)', borderRadius: 'var(--card-radius)',
+        border: '1px solid var(--card-border)',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
         position: 'relative', cursor: done ? 'default' : 'pointer',
-        opacity: done ? 0.55 : 1,
-        transition: 'opacity 200ms ease',
+        opacity: done ? 0.6 : 1,
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h3 style={{
             margin: 0, fontFamily: 'var(--font-sans)', fontWeight: 600,
-            fontSize: 20, lineHeight: 1.2, color: 'var(--ink)',
+            fontSize: 18, lineHeight: 1.2, color: 'var(--ink)',
             letterSpacing: '-0.015em', textWrap: 'pretty',
           }}>{ex.name}</h3>
           <div style={{
@@ -894,7 +896,9 @@ function ExerciseCard({ ex, history, note, done, onOpenLive, onSaveNote, onDelet
           </div>
           {plan && !done && (
             <div className="num" style={{
-              marginTop: 8, fontSize: 13, fontWeight: 600, lineHeight: 1.4,
+              marginTop: 10, fontSize: 13, fontWeight: 600, lineHeight: 1.4,
+              padding: '8px 10px', borderRadius: 8,
+              background: plan.up ? 'var(--st-stable-bg)' : plan.hold ? 'var(--st-plateau-bg)' : 'var(--accent-tint)',
               color: plan.up ? 'var(--st-stable)' : plan.hold ? 'var(--st-plateau)' : 'var(--accent)',
             }}>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.10em', textTransform: 'uppercase', marginRight: 6 }}>Today</span>
@@ -905,36 +909,37 @@ function ExerciseCard({ ex, history, note, done, onOpenLive, onSaveNote, onDelet
         <StatusBadge status={status} />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 18 }}>
-        {!done && (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14 }}>
+        {!done ? (
           <span className="tap" style={{
-            padding: '0 22px', height: 44, borderRadius: 6,
+            flex: 1, height: 44, borderRadius: 10,
             background: 'var(--accent)', color: '#FFFFFF',
-            fontSize: 13, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
-            whiteSpace: 'nowrap',
-          }}>Log Session</span>
+            fontSize: 14, fontWeight: 600, letterSpacing: '0.01em', whiteSpace: 'nowrap',
+          }}>Start logging</span>
+        ) : (
+          <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>Done for today</span>
         )}
         {onToggleDone && (
           <button
             onClick={(e) => { e.stopPropagation(); onToggleDone(ex.id); }}
             className="tap"
+            aria-label={done ? 'Mark not done' : 'Mark done'}
+            aria-pressed={done}
             style={{
-              padding: '0 14px', height: 44, borderRadius: 6,
-              background: done ? 'var(--accent)' : 'var(--paper-2)',
+              width: 44, height: 44, borderRadius: 22, flexShrink: 0,
+              background: done ? 'var(--accent)' : 'transparent',
               color: done ? '#fff' : 'var(--muted)',
-              border: done ? 'none' : '0.5px solid var(--card-border)',
-              fontSize: 13, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
-              whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6,
+              border: done ? '1px solid var(--accent)' : '1.5px solid var(--hair)',
+              fontSize: 18, fontWeight: 700,
             }}
-          >
-            {done ? '✓ Done' : 'Done'}
-          </button>
+          >✓</button>
         )}
-        <div style={{ flex: 1 }} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', marginTop: 4 }}>
         <button onClick={(e) => { e.stopPropagation(); setHistoryOpen(o => !o); }} className="tap"
-          style={{ padding: '0 10px', height: 44, fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600 }}>
-          History {history.length ? <span style={{ marginLeft: 6, color: 'var(--ink-2)' }}>{history.length}</span> : ''}
-          <span style={{ marginLeft: 6, display: 'inline-block', transform: historyOpen ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease' }}>▾</span>
+          style={{ padding: '0 2px', height: 36, minHeight: 36, fontSize: 10.5, color: 'var(--muted)', fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600 }}>
+          History {history.length ? <span style={{ marginLeft: 5, color: 'var(--ink-2)' }}>{history.length}</span> : ''}
+          <span style={{ marginLeft: 5, display: 'inline-block', transform: historyOpen ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease' }}>▾</span>
         </button>
       </div>
 

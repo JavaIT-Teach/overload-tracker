@@ -589,9 +589,16 @@ function App() {
 
   const [editMode, setEditMode] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [showExport, setShowExport] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [showStats, setShowStats] = useState(false);
+  // Bottom-tab navigation: 'train' | 'stats' | 'history' | 'settings'.
+  // UI preference only — never touches the training store.
+  const [screen, setScreenState] = useState(() => {
+    try { const v = localStorage.getItem(SCREEN_KEY); return ['train', 'stats', 'history', 'settings'].includes(v) ? v : 'train'; } catch (e) { return 'train'; }
+  });
+  const setScreen = (v) => {
+    setScreenState(v); setEditMode(false); setDayMenuOpen(false); window.scrollTo(0, 0);
+    try { localStorage.setItem(SCREEN_KEY, v); } catch (e) {}
+  };
+  const [dayMenuOpen, setDayMenuOpen] = useState(false);
   // Live Exercise Mode — { exId, originRect } of the tapped card, or null.
   const [liveEx, setLiveEx] = useState(null);
   // Bumped on every preset write so the list re-reads from localStorage.
@@ -617,53 +624,12 @@ function App() {
     });
   };
 
-  // Auto-hide header on scroll-down, reveal on scroll-up.
-  // Direction-based: compares current window.scrollY to previous on every event.
-  const [topBarHidden, setTopBarHidden] = useState(false);
-  const hideGroupRef = useRef(null);
-  const [hideHeight, setHideHeight] = useState(140);
-
-  // Measure the hide-group so we know how far to slide everything up.
-  React.useLayoutEffect(() => {
-    const measure = () => {
-      if (hideGroupRef.current) {
-        setHideHeight(hideGroupRef.current.offsetHeight);
-      }
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [activeDay]);
-
-  useEffect(() => {
-    let last = window.scrollY || 0;
-    let ticking = false;
-
-    const update = () => {
-      const y = Math.max(0, window.scrollY || 0);
-      // Show header only when near the very top, hide everywhere else
-      setTopBarHidden(y > 20);
-      last = y;
-      ticking = false;
-    };
-
-    const onScroll = () => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(update);
-    };
-
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
   // Reset to top when switching days. Effects run after the initial mount
   // too (not just on subsequent [activeDay] changes) — skip the doneIds
   // clear on that first run, or a sessionStorage-seeded doneIds (surviving
   // an OS-triggered tab reload) would get wiped immediately after loading.
   const isInitialDayRender = useRef(true);
   useEffect(() => {
-    setTopBarHidden(false);
     window.scrollTo(0, 0);
     rotationCountedRef.current = false;
     if (isInitialDayRender.current) {
@@ -1109,238 +1075,148 @@ function App() {
   })();
 
   return (
-    <div className="app-scroll">
-      {/* Sticky header. The whole header slides up by the hide-group's
-          height when scrolling down, leaving only the day tabs at the top.
-          Uses transform only — no layout changes — so body height stays
-          constant and the scroll listener can't oscillate. */}
-      <header style={{
-        position: 'sticky', top: 0, zIndex: 5,
-        background: 'rgba(250, 250, 250, 0.94)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-        transform: topBarHidden ? `translateY(-${hideHeight}px)` : 'translateY(0)',
-        transition: 'transform 280ms cubic-bezier(.4,0,.2,1)',
-        willChange: 'transform',
-      }}>
-        {/* Collapsible group: utility bar + title + subtitle */}
-        <div ref={hideGroupRef}>
-          {/* Utility bar */}
-          <div style={{
-            padding: '18px 22px 0',
-            display: 'flex', alignItems: 'baseline', gap: 10,
+    <div className="app-scroll" style={{ background: screen === 'train' ? 'var(--paper-2)' : 'var(--paper)' }}>
+      {screen === 'train' && (
+        <div key="train" className="anim-screen">
+          {/* Compact sticky header: day dropdown + edit toggle */}
+          <header style={{
+            position: 'sticky', top: 0, zIndex: 20,
+            background: 'var(--paper)', borderBottom: '1px solid var(--hair)',
+            padding: 'calc(env(safe-area-inset-top, 0px) + 10px) 16px 12px',
           }}>
-            <div style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.16em',
-              color: 'var(--muted)', textTransform: 'uppercase',
-            }}>Progressive Overload</div>
-            <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
-            <button
-              onClick={() => setShowStats(true)}
-              className="tap"
-              style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
-                color: 'var(--ink-2)', textTransform: 'uppercase',
-                padding: '8px 0',
-              }}
-            >Stats</button>
-            <button
-              onClick={() => setShowHistory(true)}
-              className="tap"
-              style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
-                color: 'var(--ink-2)', textTransform: 'uppercase',
-                padding: '8px 0',
-              }}
-            >History</button>
-            <button
-              onClick={() => setShowExport(true)}
-              className="tap"
-              style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
-                color: 'var(--ink-2)', textTransform: 'uppercase',
-                padding: '8px 0',
-              }}
-            >Export</button>
-            <button
-              onClick={() => setShowSync(true)}
-              className="tap"
-              title={sync.msg || sync.status}
-              style={{ padding: '8px 0', display: 'flex', alignItems: 'center', gap: 5 }}
-            >
-              <span style={{
-                width: 7, height: 7, borderRadius: '50%', display: 'inline-block', flexShrink: 0,
-                background: sync.status === 'ok' ? '#3CCB8F' : sync.status === 'error' || sync.status === 'conflict' ? '#FF8A80' : sync.status === 'off' ? '#8A8A94' : '#FFB020',
-              }} />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em', color: 'var(--ink-2)', textTransform: 'uppercase' }}>Sync</span>
-            </button>
-          </div>
-
-          {/* Title + subtitle + Edit button */}
-          <div style={{ padding: '14px 22px 22px' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-              <h1 style={{
-                margin: 0, fontFamily: 'var(--font-sans)', fontWeight: 700,
-                fontSize: 36, lineHeight: 1, color: 'var(--ink)', letterSpacing: '-0.03em',
-                whiteSpace: 'nowrap',
-              }}>
-                Day {day.id} <span style={{ color: 'var(--accent)', fontWeight: 700 }}>· {day.name}</span>
-              </h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <DaySelector
+                days={store.days} day={day}
+                open={dayMenuOpen} setOpen={setDayMenuOpen}
+                onPick={(id) => { setActiveDay(id); setDayMenuOpen(false); setEditMode(false); }}
+              />
+              <span style={{ flex: 1 }} />
               <button
                 onClick={() => setEditMode(m => !m)}
                 className="tap"
                 style={{
-                  padding: '0 12px', height: 32, borderRadius: 6, flexShrink: 0,
-                  border: '1px solid var(--hair)',
-                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
+                  padding: '0 14px', height: 36, minHeight: 36, borderRadius: 18, flexShrink: 0,
+                  border: editMode ? '1px solid var(--ink)' : '1px solid var(--hair)',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em', fontWeight: 600,
                   color: editMode ? 'var(--paper)' : 'var(--ink-2)', textTransform: 'uppercase',
                   background: editMode ? 'var(--ink)' : 'transparent',
                 }}
-              >
-                {editMode ? 'Done' : 'Edit'}
-              </button>
+              >{editMode ? 'Done' : 'Edit'}</button>
             </div>
-            <div style={{
-              marginTop: 8, fontSize: 13, color: 'var(--muted)',
-              fontWeight: 500, letterSpacing: '0.005em',
-            }}>
-              {day.subtitle}
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 6 }}>
+              <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 500 }}>{day.subtitle}</span>
+              {displayItems.length >= 2 && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: 'var(--accent-tint)', borderRadius: 4, padding: '3px 7px',
+                  fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase',
+                  color: 'var(--muted)', maxWidth: '100%', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+                }}>
+                  {rotFlipped ? 'Week B' : 'Week A'} · leads with <b style={{ color: 'var(--accent)' }}>{displayItems[0].ex.name}</b>
+                </span>
+              )}
             </div>
-            {displayItems.length >= 2 && (
-              <div style={{
-                marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6,
-                background: rotFlipped ? 'rgba(46,113,114,0.10)' : 'var(--card-bg)',
-                border: '0.5px solid rgba(0,0,0,0.07)', borderRadius: 6,
-                padding: '4px 9px',
-              }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--muted)', textTransform: 'uppercase' }}>
-                  {rotFlipped ? 'Week B · leading with' : 'Week A · leading with'}
-                </span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.06em', color: 'var(--accent)', fontWeight: 700 }}>
-                  {displayItems[0].ex.name}
-                </span>
+          </header>
+
+          <main style={{ padding: '14px 12px 110px' }}>
+            {!editMode && (() => {
+              const active = displayItems.filter(i => !i.offWeek);
+              const doneCount = active.filter(i => doneIds.has(i.ex.id)).length;
+              const pct = active.length ? doneCount / active.length : 0;
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '2px 4px 14px' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                      <span className="num" style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>{doneCount}/{active.length}</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>exercises done</span>
+                    </div>
+                    <div style={{ height: 4, borderRadius: 99, background: 'var(--hair)', marginTop: 6, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${pct * 100}%`, background: 'var(--accent)', borderRadius: 99, transition: 'width 300ms ease' }} />
+                    </div>
+                  </div>
+                  {doneIds.size > 0 && (
+                    <button onClick={clearDoneIds} className="tap" style={{
+                      height: 34, minHeight: 34, padding: '0 12px', borderRadius: 17,
+                      border: '1px solid var(--hair)', background: 'var(--paper)', color: 'var(--ink-2)',
+                      fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600,
+                    }}>New session</button>
+                  )}
+                </div>
+              );
+            })()}
+
+            {!editMode && displayItems.map(({ ex, offWeek }, idx) => {
+              // Notes shape may be legacy array (sessionized) — normalize to {text, savedAt}
+              const rawNote = store.notes && store.notes[ex.id];
+              const note = Array.isArray(rawNote)
+                ? (rawNote.length ? { text: rawNote[rawNote.length - 1].text, savedAt: rawNote[rawNote.length - 1].date } : null)
+                : (rawNote && rawNote.text ? rawNote : null);
+              return (
+                <div key={`${activeDay}-${ex.id}`} className="anim-card" style={{ '--i': Math.min(idx, 8), marginBottom: 12, position: 'relative', ...(offWeek ? { opacity: 0.4, pointerEvents: 'none' } : {}) }}>
+                  {offWeek && (
+                    <div style={{
+                      position: 'absolute', top: 12, right: 16, zIndex: 1,
+                      fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em',
+                      textTransform: 'uppercase', color: 'var(--muted)',
+                    }}>Not this week</div>
+                  )}
+                  <ExerciseCard
+                    ex={ex}
+                    history={store.sessions[ex.id] || []}
+                    note={note}
+                    done={doneIds.has(ex.id)}
+                    onOpenLive={(exId, rect) => setLiveEx({ exId, originRect: rect })}
+                    onSaveNote={saveExerciseNote}
+                    onDeleteNote={deleteExerciseNote}
+                    onToggleDone={toggleDone}
+                  />
+                </div>
+              );
+            })}
+
+            {editMode && (
+              <div className="anim-card" style={{ background: 'var(--paper)', borderRadius: 'var(--card-radius)', border: '1px solid var(--card-border)' }}>
+                <EditPane
+                  day={day}
+                  dayIndex={store.days.findIndex(d => d.id === day.id)}
+                  onUpdate={updateEx}
+                  onRemove={removeEx}
+                  onAdd={() => addEx(day.id)}
+                  onMove={moveExercise}
+                  onTogglePlateau={togglePlateau}
+                />
               </div>
             )}
-          </div>
+          </main>
         </div>
+      )}
 
-        {/* Day tabs — always visible at the top of the visible header */}
-        <div style={{
-          display: 'flex', gap: 0,
-          borderBottom: '1px solid var(--hair)',
-          overflowX: 'auto', scrollbarWidth: 'none',
-        }}>
-          {store.days.map(d => {
-            const active = d.id === activeDay;
-            return (
-              <button
-                key={d.id}
-                onClick={() => setActiveDay(d.id)}
-                className="tap"
-                style={{
-                  padding: '14px 14px 12px', minWidth: 0,
-                  flex: '1 1 auto',
-                  borderBottom: `3px solid ${active ? 'var(--accent)' : 'transparent'}`,
-                  marginBottom: -1,
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
-                  color: active ? 'var(--ink)' : 'var(--muted)',
-                  transition: 'color 160ms ease, border-color 160ms ease',
-                  background: 'transparent',
-                }}
-              >
-                <span style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em',
-                  textTransform: 'uppercase', opacity: active ? 1 : 0.7,
-                  color: active ? 'var(--accent)' : 'var(--muted)',
-                  fontWeight: 600,
-                }}>Day {d.id}</span>
-                <span style={{
-                  fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 600,
-                  letterSpacing: '0.04em', textTransform: 'uppercase',
-                }}>{d.name}</span>
-              </button>
-            );
-          })}
-        </div>
-      </header>
+      {screen === 'stats' && (
+        <div key="stats" className="anim-screen"><ScreenMode><StatsSheet store={store} onClose={() => setScreen('train')} /></ScreenMode></div>
+      )}
 
-      {/* Body — slides up in lockstep with the header so no gap appears
-          between the day tabs and the first card. */}
-      <main style={{
-        paddingBottom: 80,
-        transform: topBarHidden ? `translateY(-${hideHeight}px)` : 'translateY(0)',
-        transition: 'transform 280ms cubic-bezier(.4,0,.2,1)',
-        willChange: 'transform',
-      }}>
-        {!editMode && doneIds.size > 0 && (
-          <button
-            onClick={clearDoneIds}
-            className="tap"
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: '100%', height: 40, marginBottom: 16,
-              border: '1px solid var(--hair)', borderRadius: 6,
-              background: 'var(--paper-2)', color: 'var(--ink-2)',
-              fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-            }}
-          >
-            New session
-          </button>
-        )}
-        {!editMode && (
-        <div style={{ padding: '16px 14px 0' }}>
-        {displayItems.map(({ ex, offWeek }) => {
-          // Notes shape may be legacy array (sessionized) — normalize to {text, savedAt}
-          const rawNote = store.notes && store.notes[ex.id];
-          const note = Array.isArray(rawNote)
-            ? (rawNote.length ? { text: rawNote[rawNote.length - 1].text, savedAt: rawNote[rawNote.length - 1].date } : null)
-            : (rawNote && rawNote.text ? rawNote : null);
-          return (
-            <div key={ex.id} style={offWeek ? { opacity: 0.35, pointerEvents: 'none', position: 'relative' } : {}}>
-              {offWeek && (
-                <div style={{
-                  position: 'absolute', top: 10, right: 16, zIndex: 1,
-                  fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em',
-                  textTransform: 'uppercase', color: 'var(--muted)',
-                }}>Not this week</div>
-              )}
-              <ExerciseCard
-                ex={ex}
-                history={store.sessions[ex.id] || []}
-                note={note}
-                done={doneIds.has(ex.id)}
-                onOpenLive={(exId, rect) => setLiveEx({ exId, originRect: rect })}
-                onSaveNote={saveExerciseNote}
-                onDeleteNote={deleteExerciseNote}
-                onToggleDone={toggleDone}
-              />
-            </div>
-          );
-        })}
-        </div>
-        )}
-
-        {!editMode && (
-          <ExportLauncherButton onOpen={() => setShowExport(true)} />
-        )}
-
-        {editMode && (
-          <EditPane
-            day={day}
-            dayIndex={store.days.findIndex(d => d.id === day.id)}
-            onUpdate={updateEx}
-            onRemove={removeEx}
-            onAdd={() => addEx(day.id)}
-            onMove={moveExercise}
-            onTogglePlateau={togglePlateau}
-            onShowImport={() => setShowImport(true)}
-            onReset={resetAll}
-            palette={palette}
-            onPaletteChange={setPalette}
+      {screen === 'history' && (
+        <div key="history" className="anim-screen"><ScreenMode>
+          <HistorySheet
+            store={store}
+            onEditSets={editHistorySets}
+            onAddSession={addHistorySession}
+            onRemoveSession={removeHistorySession}
+            onClose={() => setScreen('train')}
           />
-        )}
-      </main>
+        </ScreenMode></div>
+      )}
+
+      {screen === 'settings' && (
+        <div key="settings" className="anim-screen"><SettingsScreen
+          sync={sync}
+          onOpenSync={() => setShowSync(true)}
+          palette={palette}
+          onPaletteChange={setPalette}
+          onShowImport={() => setShowImport(true)}
+          onReset={resetAll}
+        /></div>
+      )}
 
       {/* Sheets */}
       {showImport && (
@@ -1358,12 +1234,6 @@ function App() {
         />
       )}
 
-      {showExport && (
-        <ExportSheet
-          store={store}
-          onClose={() => setShowExport(false)}
-        />
-      )}
 
       {syncConflict && (
         <div style={{
@@ -1411,17 +1281,7 @@ function App() {
         />
       )}
 
-      {showStats && <StatsSheet store={store} onClose={() => setShowStats(false)} />}
-
-      {showHistory && (
-        <HistorySheet
-          store={store}
-          onEditSets={editHistorySets}
-          onAddSession={addHistorySession}
-          onRemoveSession={removeHistorySession}
-          onClose={() => setShowHistory(false)}
-        />
-      )}
+      <TabBar screen={screen} onPick={setScreen} />
 
       {liveEx && (() => {
         const liveExObj = findEx(store, liveEx.exId);
@@ -1461,7 +1321,6 @@ function findEx(store, exId) {
 }
 
 // ── Date-based export helpers ─────────────────────────────────
-const EMAIL_TO = 'javahirahmedov@gmail.com';
 
 // Local-calendar 'YYYY-MM-DD' key for a Date or ISO string.
 function localDateKey(d) {
@@ -1502,113 +1361,6 @@ function sessionsForDate(store, dateKey) {
 // Standing notes (store.notes[exId]) are reference info for while you're
 // logging (machine setup, etc.) and are intentionally NEVER included here —
 // only session notes (day-specific observations) go in the export.
-function buildDateEmail(store, dateKey) {
-  const pretty = prettyDateFromKey(dateKey);
-  const subject = `Training Log — ${pretty}`;
-  const groups = sessionsForDate(store, dateKey);
-  if (!groups.length) {
-    return { to: EMAIL_TO, subject, body: `No sessions logged for ${pretty}.`, hasData: false, groups };
-  }
-  const lines = [`Training Log — ${pretty}`, ''];
-  for (const g of groups) {
-    lines.push(`Day ${g.day.id} · ${g.day.name}`);
-    for (const { ex, session } of g.items) {
-      lines.push(ex.name);
-      let setStr;
-      if (session.clusterMode && session.sets.length) {
-        const w = session.sets[0].weight;
-        const repsStr = session.sets.map(s => s.reps).join(' · ');
-        setStr = ex.unit === '' ? repsStr : `${fmt(w)}${ex.unit ? ' ' + ex.unit : ''}: ${repsStr}`;
-      } else {
-        setStr = session.sets.map(st => (
-          ex.unit === ''
-            ? `${st.reps} ${ex.repUnit || 'reps'}`
-            : `${st.reps}×${fmt(st.weight)}${ex.unit ? ' ' + ex.unit : ''}`
-        )).join(', ');
-      }
-      lines.push(`  ${setStr}`);
-      if (session.note) lines.push(`  Note: "${session.note}"`);
-    }
-    lines.push('');
-  }
-  return { to: EMAIL_TO, subject, body: lines.join('\n').trim(), hasData: true, groups };
-}
-
-// Build the mailto payload for a date range (startKey..endKey inclusive).
-// Days with no logged sessions are skipped silently. If only one date has
-// data, the subject and body degrade to the same format as buildDateEmail.
-// Standing notes (store.notes[exId]) are reference info for while you're
-// logging (machine setup, etc.) and are intentionally NEVER included here —
-// only session notes (day-specific observations) go in the export.
-function buildRangeEmail(store, startKey, endKey) {
-  // Walk every calendar day in the range.
-  const allDayGroups = []; // [{ dateKey, pretty, groups }]
-  const start = new Date(startKey + 'T00:00:00');
-  const end   = new Date(endKey   + 'T00:00:00');
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const dk = localDateKey(d);
-    const groups = sessionsForDate(store, dk);
-    if (groups.length) allDayGroups.push({ dateKey: dk, pretty: prettyDateFromKey(dk), groups });
-  }
-
-  if (!allDayGroups.length) {
-    const subject = `Training Log — ${prettyDateFromKey(startKey)}–${prettyDateFromKey(endKey)}`;
-    return { to: EMAIL_TO, subject, body: 'No sessions logged in this date range.', hasData: false, allDayGroups };
-  }
-
-  // Subject: single date if only one day, range otherwise.
-  const subject = allDayGroups.length === 1
-    ? `Training Log — ${allDayGroups[0].pretty}`
-    : `Training Log — ${allDayGroups[0].pretty}–${allDayGroups[allDayGroups.length - 1].pretty}`;
-
-  const lines = [subject, ''];
-  for (const { pretty, groups } of allDayGroups) {
-    // Day names from each routine-day group logged that date.
-    const dayNames = [...new Set(groups.map(g => g.day.name))].join(' · ');
-    lines.push(`─── ${pretty} — ${dayNames} ───`);
-    lines.push('');
-    for (const g of groups) {
-      if (groups.length > 1) lines.push(`Day ${g.day.id} · ${g.day.name}`);
-      for (const { ex, session } of g.items) {
-        lines.push(ex.name);
-        const setStr = session.sets.map(st => (
-          ex.unit === ''
-            ? `${st.reps} ${ex.repUnit || 'reps'}`
-            : `${st.reps}×${fmt(st.weight)}${ex.unit ? ' ' + ex.unit : ''}`
-        )).join(', ');
-        lines.push(`  ${setStr}`);
-        if (session.note) lines.push(`  Note: "${session.note}"`);
-      }
-      lines.push('');
-    }
-  }
-
-  return { to: EMAIL_TO, subject, body: lines.join('\n').trim(), hasData: true, allDayGroups };
-}
-
-// Bottom-of-day launcher — opens the date export sheet.
-function ExportLauncherButton({ onOpen }) {
-  return (
-    <div style={{ padding: '26px 22px 8px' }}>
-      <button
-        onClick={onOpen}
-        className="tap"
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          width: '100%', height: 48, borderRadius: 6,
-          border: '1px solid var(--hair)', background: 'var(--paper)',
-          color: 'var(--ink-2)',
-          fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.12em',
-          textTransform: 'uppercase', fontWeight: 600,
-        }}
-      >
-        Send to Email
-      </button>
-    </div>
-  );
-}
-
-// ── Sync sheet ────────────────────────────────────────────────
 function SyncSheet({ sync, syncToken, setSyncToken, syncBusy, confirmDisconnect, setConfirmDisconnect, onConnect, onDisconnect, onSyncNow, onClose }) {
   const c = syncCfg();
   const connected = !!c;
@@ -1749,7 +1501,7 @@ function PalettePicker({ current, onChange }) {
 }
 
 // ── Edit pane ─────────────────────────────────────────────────
-function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImport, onReset, onTogglePlateau, palette, onPaletteChange }) {
+function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onTogglePlateau }) {
   // Archived exercises stay in day.exercises but are hidden here too. Move
   // targets are resolved by id against the FULL array (not the filtered
   // list's position) so an up/down click always swaps with the neighboring
@@ -1769,15 +1521,10 @@ function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImpo
           color: 'var(--accent)', textTransform: 'uppercase',
         }}>Edit Mode</span>
         <span style={{ flex: 1 }} />
-        <button onClick={onShowImport} className="tap" style={{
-          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.10em',
-          color: 'var(--ink-2)', textTransform: 'uppercase', padding: '8px 0',
-        }}>Import JSON</button>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>Theme, import & reset are in Settings</span>
       </div>
 
-      <PalettePicker current={palette} onChange={onPaletteChange} />
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, marginTop: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, marginTop: 20 }}>
         {exercises.map((ex, i) => {
           const fullIndex = allExercises.findIndex(e => e.id === ex.id);
           const prevActive = exercises[i - 1];
@@ -1806,14 +1553,6 @@ function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onShowImpo
         color: 'var(--ink-2)', fontSize: 13, fontWeight: 500,
       }}>
         + Add Exercise to Day {day.id}
-      </button>
-
-      <button onClick={onReset} className="tap" style={{
-        marginTop: 24, fontSize: 11, color: 'var(--muted)',
-        fontFamily: 'var(--font-mono)', letterSpacing: '0.10em',
-        textTransform: 'uppercase', padding: '8px 0',
-      }}>
-        Reset all data
       </button>
     </div>
   );
@@ -2108,307 +1847,7 @@ function GroupPreview({ groups }) {
   );
 }
 
-function ExportSheet({ store, onClose }) {
-  const todayKey = localDateKey(new Date());
-
-  const [mode, setMode] = useState('today'); // 'today' | 'pick' | 'range'
-
-  // Single-date state (today / pick modes)
-  const [picked, setPicked] = useState(() => sessionStorage.getItem('pol_export_date') || todayKey);
-
-  // Range state
-  const sevenDaysAgo = (() => {
-    const d = new Date(); d.setDate(d.getDate() - 6); return localDateKey(d);
-  })();
-  const thisWeekMonday = (() => {
-    const d = new Date();
-    const day = d.getDay(); // 0=Sun
-    d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
-    return localDateKey(d);
-  })();
-  const [rangeStart, setRangeStart] = useState(() => sessionStorage.getItem('pol_range_start') || sevenDaysAgo);
-  const [rangeEnd,   setRangeEnd]   = useState(() => sessionStorage.getItem('pol_range_end')   || todayKey);
-
-  // Persist single-date pick across sheet opens
-  useEffect(() => {
-    if (mode === 'pick') sessionStorage.setItem('pol_export_date', picked);
-  }, [mode, picked]);
-
-  // Persist range across sheet opens
-  useEffect(() => {
-    if (mode === 'range') {
-      sessionStorage.setItem('pol_range_start', rangeStart);
-      sessionStorage.setItem('pol_range_end',   rangeEnd);
-    }
-  }, [mode, rangeStart, rangeEnd]);
-
-  const dateKey = mode === 'today' ? todayKey : picked;
-
-  // Single-day email (today / pick modes)
-  const singleEmail = useMemo(
-    () => mode !== 'range' ? buildDateEmail(store, dateKey) : null,
-    [store, dateKey, mode]
-  );
-
-  // Range email
-  const rangeEmail = useMemo(
-    () => mode === 'range' ? buildRangeEmail(store, rangeStart, rangeEnd) : null,
-    [store, rangeStart, rangeEnd, mode]
-  );
-
-  const active   = mode === 'range' ? rangeEmail   : singleEmail;
-  const hasData  = active ? active.hasData  : false;
-  const body     = active ? active.body     : '';
-  const subject  = active ? active.subject  : '';
-  const mailHref = `mailto:${EMAIL_TO}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-
-  // Count total logged sets across the active result
-  const totalLogged = useMemo(() => {
-    if (!hasData) return 0;
-    if (mode === 'range') {
-      return (rangeEmail.allDayGroups || []).reduce((n, { groups }) =>
-        n + groups.reduce((m, g) => m + g.items.length, 0), 0);
-    }
-    return (singleEmail.groups || []).reduce((n, g) => n + g.items.length, 0);
-  }, [hasData, mode, singleEmail, rangeEmail]);
-
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    if (!hasData) return;
-    try {
-      await navigator.clipboard.writeText(body);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {}
-  };
-
-  const segStyle = (active) => ({
-    flex: 1, height: 42, borderRadius: 6,
-    fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.08em',
-    textTransform: 'uppercase', fontWeight: 600,
-    background: active ? 'var(--ink)' : 'transparent',
-    color: active ? 'var(--paper)' : 'var(--ink-2)',
-    border: active ? '1px solid var(--ink)' : '1px solid var(--hair)',
-    transition: 'background 120ms ease, color 120ms ease, border-color 120ms ease',
-  });
-
-  const dateInputStyle = {
-    width: '100%', height: 48, padding: '0 14px',
-    border: '1px solid var(--hair)', borderRadius: 6,
-    background: 'var(--paper)', color: 'var(--ink)', outline: 'none',
-    fontFamily: 'var(--font-mono)', fontSize: 14,
-    boxSizing: 'border-box',
-  };
-
-  return (
-    <Sheet onClose={onClose} title="Export" titleStyle={{ fontSize: 24, overflow: 'visible', textOverflow: 'clip', flexShrink: 0 }}>
-
-      {/* Mode tabs: Today / Pick a date / Date range */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <button onClick={() => setMode('today')} className="tap" style={segStyle(mode === 'today')}>Today</button>
-        <button onClick={() => setMode('pick')}  className="tap" style={segStyle(mode === 'pick')}>Pick date</button>
-        <button onClick={() => setMode('range')} className="tap" style={segStyle(mode === 'range')}>Range</button>
-      </div>
-
-      {/* ── Single-date pick ── */}
-      {mode === 'pick' && (
-        <div className="reveal" style={{ marginBottom: 4 }}>
-          <input
-            type="date"
-            value={picked}
-            max={todayKey}
-            onChange={e => { if (e.target.value) setPicked(e.target.value); }}
-            className="num"
-            style={dateInputStyle}
-          />
-        </div>
-      )}
-
-      {/* ── Range picker ── */}
-      {mode === 'range' && (
-        <div className="reveal">
-          {/* Preset shortcuts */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            {[
-              { label: 'This week', start: thisWeekMonday, end: todayKey },
-              { label: 'Last 7 days', start: sevenDaysAgo, end: todayKey },
-            ].map(p => {
-              const isActive = rangeStart === p.start && rangeEnd === p.end;
-              return (
-                <button
-                  key={p.label}
-                  onClick={() => { setRangeStart(p.start); setRangeEnd(p.end); }}
-                  className="tap"
-                  style={{
-                    height: 34, padding: '0 14px', borderRadius: 6,
-                    fontFamily: 'var(--font-mono)', fontSize: 10,
-                    letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600,
-                    background: isActive ? 'var(--accent-tint)' : 'transparent',
-                    color: isActive ? 'var(--accent)' : 'var(--ink-2)',
-                    border: isActive ? '1px solid var(--accent)' : '1px solid var(--hair)',
-                  }}
-                >{p.label}</button>
-              );
-            })}
-          </div>
-
-          {/* Start / End date inputs */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
-                textTransform: 'uppercase', color: 'var(--muted)',
-              }}>Start</span>
-              <input
-                type="date"
-                value={rangeStart}
-                max={rangeEnd}
-                onChange={e => { if (e.target.value) setRangeStart(e.target.value); }}
-                style={dateInputStyle}
-              />
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.10em',
-                textTransform: 'uppercase', color: 'var(--muted)',
-              }}>End</span>
-              <input
-                type="date"
-                value={rangeEnd}
-                min={rangeStart}
-                max={todayKey}
-                onChange={e => { if (e.target.value) setRangeEnd(e.target.value); }}
-                style={dateInputStyle}
-              />
-            </label>
-          </div>
-        </div>
-      )}
-
-      {/* ── Preview heading ── */}
-      {mode !== 'range' && (
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '20px 0 14px' }}>
-          <span style={{
-            fontFamily: 'var(--font-sans)', fontSize: 17, fontWeight: 700,
-            color: 'var(--ink)', letterSpacing: '-0.01em',
-            whiteSpace: 'nowrap', flexShrink: 0,
-          }}>{prettyDateFromKey(dateKey)}</span>
-          <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
-          {hasData && (
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
-              letterSpacing: '0.08em', textTransform: 'uppercase',
-            }}>{totalLogged} logged</span>
-          )}
-        </div>
-      )}
-
-      {mode === 'range' && (
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '20px 0 14px' }}>
-          <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
-          {hasData && (
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)',
-              letterSpacing: '0.08em', textTransform: 'uppercase',
-            }}>{(rangeEmail.allDayGroups || []).length} days · {totalLogged} logged</span>
-          )}
-        </div>
-      )}
-
-      {/* ── Preview body ── */}
-      {mode !== 'range' && (
-        hasData ? (
-          <GroupPreview groups={singleEmail.groups} />
-        ) : (
-          <div style={{
-            padding: '22px 16px', borderRadius: 8,
-            border: '1px dashed var(--rule-thick)',
-            textAlign: 'center', fontSize: 13.5, color: 'var(--muted)', fontWeight: 500,
-          }}>
-            No sessions logged for this date.
-          </div>
-        )
-      )}
-
-      {mode === 'range' && (
-        hasData ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
-            {(rangeEmail.allDayGroups || []).map(({ dateKey: dk, pretty, groups }) => (
-              <div key={dk}>
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14,
-                }}>
-                  <span style={{
-                    fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 700,
-                    color: 'var(--ink)', letterSpacing: '-0.01em', whiteSpace: 'nowrap',
-                  }}>{pretty}</span>
-                  <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
-                  <span style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--accent)',
-                    letterSpacing: '0.10em', textTransform: 'uppercase', fontWeight: 700,
-                  }}>{groups.map(g => g.day.name).join(' · ')}</span>
-                </div>
-                <GroupPreview groups={groups} />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{
-            padding: '22px 16px', borderRadius: 8,
-            border: '1px dashed var(--rule-thick)',
-            textAlign: 'center', fontSize: 13.5, color: 'var(--muted)', fontWeight: 500,
-          }}>
-            No sessions logged in this date range.
-          </div>
-        )
-      )}
-
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
-        <button
-          onClick={copy}
-          disabled={!hasData}
-          className="tap"
-          style={{
-            flex: 1, height: 48, borderRadius: 6,
-            border: '1px solid var(--hair)',
-            color: hasData ? 'var(--ink-2)' : 'var(--muted-2)',
-            background: copied ? 'var(--st-stable-bg)' : 'transparent',
-            fontSize: 14, fontWeight: 500,
-            cursor: hasData ? 'pointer' : 'not-allowed',
-          }}
-        >{copied ? '✓ Copied' : 'Copy'}</button>
-        <a
-          href={hasData ? mailHref : undefined}
-          className="tap"
-          aria-disabled={!hasData}
-          onClick={e => {
-            e.preventDefault();
-            if (!hasData) return;
-            // Pin scroll position — some browsers reset to top on mailto navigation.
-            const y = window.scrollY;
-            window.location.href = mailHref;
-            requestAnimationFrame(() => window.scrollTo(0, y));
-          }}
-          style={{
-            flex: 2, height: 48, borderRadius: 6,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: hasData ? 'var(--accent)' : 'var(--paper-2)',
-            color: hasData ? '#FFFFFF' : 'var(--muted-2)',
-            textDecoration: 'none',
-            fontSize: 14, fontWeight: 600, letterSpacing: '0.02em',
-            cursor: hasData ? 'pointer' : 'not-allowed',
-          }}
-        >Send to Email</a>
-      </div>
-    </Sheet>
-  );
-}
-
-// ── Sheet (modal) ─────────────────────────────────────────────
 // ── History browsing & editing ────────────────────────────────
-
-// Collect every distinct logged date across all exercises, newest first.
 function allLoggedDates(store) {
   const seen = new Set();
   for (const sess of Object.values(store.sessions || {})) {
@@ -2622,7 +2061,7 @@ function HistoryDayEditor({ store, dateKey, onEditSets, onAddSession, onRemoveSe
     <div
       onClick={onClose}
       style={{
-        position: 'absolute', inset: 0, zIndex: 100,
+        position: 'fixed', inset: 0, zIndex: 100,
         background: 'rgba(20, 18, 14, 0.32)',
         display: 'flex', alignItems: 'flex-end',
         backdropFilter: 'blur(2px)',
@@ -3088,11 +2527,22 @@ function HistoryDayEditor({ store, dateKey, onEditSets, onAddSession, onRemoveSe
 }
 
 function Sheet({ title, children, onClose, titleStyle }) {
+  if (React.useContext(ScreenModeCtx)) {
+    return (
+      <div style={{ padding: 'calc(env(safe-area-inset-top, 0px) + 18px) 18px 110px' }}>
+        <h1 style={{
+          margin: '0 0 18px', fontFamily: 'var(--font-sans)', fontWeight: 700,
+          fontSize: 32, color: 'var(--ink)', letterSpacing: '-0.025em',
+        }}>{title}</h1>
+        {children}
+      </div>
+    );
+  }
   return (
     <div
       onClick={onClose}
       style={{
-        position: 'absolute', inset: 0, zIndex: 100,
+        position: 'fixed', inset: 0, zIndex: 100,
         background: 'rgba(20, 18, 14, 0.32)',
         display: 'flex', alignItems: 'flex-end',
         backdropFilter: 'blur(2px)',
@@ -3122,6 +2572,162 @@ function Sheet({ title, children, onClose, titleStyle }) {
           }}>×</button>
         </div>
         {children}
+      </div>
+    </div>
+  );
+}
+
+// ── Screens & navigation ─────────────────────────────────────
+const SCREEN_KEY = 'pol_screen';
+
+// Inside <ScreenMode>, a <Sheet> renders as a full page instead of a pull-up
+// modal. Lets Stats and History reuse their sheet bodies as tab screens.
+const ScreenModeCtx = React.createContext(false);
+function ScreenMode({ children }) {
+  return <ScreenModeCtx.Provider value={true}>{children}</ScreenModeCtx.Provider>;
+}
+
+const ICONS = {
+  train: <><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11" /></>,
+  stats: <><path d="M5 20V12M12 20V5M19 20v-6" /><path d="M3 20h18" /></>,
+  history: <><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17M8 3v4M16 3v4" /></>,
+  settings: <><path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></>,
+};
+
+function TabBar({ screen, onPick }) {
+  const tabs = [['train', 'Train'], ['stats', 'Stats'], ['history', 'History'], ['settings', 'Settings']];
+  return (
+    <nav style={{
+      position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 50,
+      background: 'var(--paper)', borderTop: '1px solid var(--hair)',
+      paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+    }}>
+      <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', position: 'relative' }}>
+        <span aria-hidden="true" style={{
+          position: 'absolute', top: -1, height: 2, width: '12.5%', borderRadius: 2,
+          background: 'var(--accent)',
+          left: `${tabs.findIndex(t => t[0] === screen) * 25 + 6.25}%`,
+          transition: 'left 280ms cubic-bezier(.2,.7,.3,1)',
+        }} />
+        {tabs.map(([id, label]) => {
+          const on = screen === id;
+          return (
+            <button key={id} onClick={() => onPick(id)} className="tap" aria-current={on ? 'page' : undefined}
+              style={{
+                flex: 1, height: 58, flexDirection: 'column', gap: 3,
+                color: on ? 'var(--accent)' : 'var(--muted)',
+              }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                style={{ transform: on ? 'translateY(-1px) scale(1.08)' : 'none', transition: 'transform 220ms cubic-bezier(.2,.7,.3,1)' }}
+                strokeWidth={on ? 2 : 1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {ICONS[id]}
+              </svg>
+              <span style={{ fontSize: 10.5, fontWeight: on ? 700 : 500, letterSpacing: '0.02em' }}>{label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+// Day picker: big "Day 2 · PUSH ▾" button opening a dropdown list.
+function DaySelector({ days, day, open, setOpen, onPick }) {
+  return (
+    <div style={{ position: 'relative', minWidth: 0 }}>
+      <button onClick={() => setOpen(o => !o)} className="tap" aria-expanded={open}
+        style={{ justifyContent: 'flex-start', gap: 8, minWidth: 0, textAlign: 'left' }}>
+        <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0 }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700 }}>Day {day.id}</span>
+          <span style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.05, letterSpacing: '-0.02em', color: 'var(--ink)', whiteSpace: 'nowrap' }}>{day.name}</span>
+        </span>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"
+          style={{ marginTop: 12, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 180ms ease', color: 'var(--ink-2)' }}>
+          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 30 }} />
+          <div className="anim-pop" role="menu" style={{
+            position: 'absolute', top: '100%', left: -6, zIndex: 31, marginTop: 6,
+            width: 'min(300px, calc(100vw - 20px))',
+            background: 'var(--paper)', border: '1px solid var(--hair)', borderRadius: 12,
+            boxShadow: '0 12px 32px rgba(0,0,0,0.14)', padding: 6,
+          }}>
+            {days.map(d => {
+              const on = d.id === day.id;
+              const count = (d.exercises || []).filter(e => !e.archived).length;
+              return (
+                <button key={d.id} role="menuitem" onClick={() => onPick(d.id)} className="tap" style={{
+                  width: '100%', justifyContent: 'flex-start', gap: 12, padding: '10px 12px', borderRadius: 8,
+                  background: on ? 'var(--accent-tint)' : 'transparent', textAlign: 'left',
+                }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: on ? 'var(--accent)' : 'var(--muted)', fontWeight: 700, width: 38, flexShrink: 0 }}>DAY {d.id}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{d.name}</span>
+                    <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.subtitle} · {count} ex</span>
+                  </span>
+                  {on && <span style={{ color: 'var(--accent)', fontWeight: 700 }}>✓</span>}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SettingsSection({ title, children }) {
+  return (
+    <section style={{ marginBottom: 26 }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, marginBottom: 8 }}>{title}</div>
+      <div style={{ background: 'var(--paper-2)', borderRadius: 12, overflow: 'hidden' }}>{children}</div>
+    </section>
+  );
+}
+
+function SettingsRow({ label, detail, onClick, danger, left }) {
+  return (
+    <button onClick={onClick} className="tap" style={{
+      width: '100%', justifyContent: 'flex-start', gap: 10, padding: '12px 14px', textAlign: 'left',
+      borderBottom: '1px solid var(--hair-2)',
+    }}>
+      {left}
+      <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: danger ? '#B42318' : 'var(--ink)' }}>{label}</span>
+      {detail && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{detail}</span>}
+      {!danger && <span style={{ color: 'var(--muted-2)', fontSize: 16 }}>›</span>}
+    </button>
+  );
+}
+
+function SettingsScreen({ sync, onOpenSync, palette, onPaletteChange, onShowImport, onReset }) {
+  const st = sync.status;
+  const dot = st === 'ok' ? '#3CCB8F' : st === 'error' || st === 'conflict' ? '#FF8A80' : st === 'off' ? '#8A8A94' : '#FFB020';
+  const text = { off: 'Not connected', pending: 'Not sent yet', saving: 'Saving…', ok: `Saved ${sync.at ? new Date(sync.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}`, conflict: 'Conflict', error: 'Error' }[st] || st;
+  return (
+    <div style={{ padding: 'calc(env(safe-area-inset-top, 0px) + 18px) 18px 110px' }}>
+      <h1 style={{ margin: '0 0 22px', fontWeight: 700, fontSize: 32, color: 'var(--ink)', letterSpacing: '-0.025em' }}>Settings</h1>
+
+      <SettingsSection title="Backup">
+        <SettingsRow label="GitHub sync" detail={text} onClick={onOpenSync}
+          left={<span style={{ width: 9, height: 9, borderRadius: '50%', background: dot, flexShrink: 0 }} />} />
+      </SettingsSection>
+
+      <SettingsSection title="Appearance">
+        <div style={{ padding: '14px 14px 0' }}>
+          <PalettePicker current={palette} onChange={onPaletteChange} />
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Routine data">
+        <SettingsRow label="Import routine (JSON)" onClick={onShowImport} />
+        <SettingsRow label="Reset all data" onClick={onReset} danger />
+      </SettingsSection>
+
+      <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+        Edit exercises from the Train tab with the Edit button.
       </div>
     </div>
   );
