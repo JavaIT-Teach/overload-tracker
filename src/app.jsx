@@ -611,9 +611,6 @@ function App() {
   // resets on day switch, the "New session" button, or an actual tab close.
   const [doneIds, setDoneIds] = useState(() => readDoneIds());
 
-  // Rotation — tracks whether we've incremented this day's session count
-  // for the current browser visit. Resets whenever the active day changes.
-  const rotationCountedRef = useRef(false);
 
   // Apply an update to doneIds and mirror it to sessionStorage in lockstep.
   const updateDoneIds = (next) => {
@@ -631,7 +628,6 @@ function App() {
   const isInitialDayRender = useRef(true);
   useEffect(() => {
     window.scrollTo(0, 0);
-    rotationCountedRef.current = false;
     if (isInitialDayRender.current) {
       isInitialDayRender.current = false;
       return;
@@ -673,12 +669,7 @@ function App() {
     const isBw = ex.unit === '' && ex.weightMin === 0 && ex.weightMax === 0;
     const shouldCalibrate = ex.calibration && isFirstEverSession && !isBw;
     const baseline = shouldCalibrate ? roundToStep(maxWeight(sets), ex.weightStep || 5) : null;
-    // Increment this day's rotation counter on the first log of each visit.
-    const willCountRotation = !rotationCountedRef.current;
-    if (willCountRotation) rotationCountedRef.current = true;
     setStore(s => {
-      const rot = s.rotation || {};
-      const dayRot = rot[day.id] || { count: 0 };
       return {
         ...s,
         updatedAt: Date.now(),
@@ -694,9 +685,6 @@ function App() {
                 : e),
             }))
           : s.days,
-        rotation: willCountRotation
-          ? { ...rot, [day.id]: { ...dayRot, count: dayRot.count + 1 } }
-          : rot,
       };
     });
     updateDoneIds(prev => new Set(prev).add(exId));
@@ -1043,36 +1031,8 @@ function App() {
   // resolve their name/unit/target) but never appear in the active list.
   const exercises = day.exercises.filter(ex => !ex.archived);
 
-  // Rotation state — flips every 2 sessions (first log per browser visit).
-  const dayRotCount = ((store.rotation || {})[day.id] || {}).count || 0;
-  const rotFlipped = Math.floor(dayRotCount / 2) % 2 === 1;
-
-  // Build display list: rotation-aware order, with off-week flag for Day 3 core alternation.
-  const displayItems = (() => {
-    const items = exercises.map(ex => ({ ex, offWeek: false }));
-    if (rotFlipped) {
-      if (day.id === 3) {
-        // Swap Leg Press (index 0) and Bulgarian Split Squat (index 2).
-        // Lying Leg Curl stays at index 1 in both versions.
-        if (items.length >= 3) { const t = items[0]; items[0] = items[2]; items[2] = t; }
-      } else if (items.length >= 2) {
-        // Days 1, 2, 4: swap lead exercise and second exercise.
-        const t = items[0]; items[0] = items[1]; items[1] = t;
-      }
-    }
-    // Day 3: Dead Bug / Farmer's Walk alternate each session.
-    // Week A (not flipped) → Dead Bug active, Farmer's Walk greyed.
-    // Week B (flipped)     → Farmer's Walk active, Dead Bug greyed.
-    if (day.id === 3) {
-      const deadBugId = cryptoId('d3_Dead Bug');
-      const farmersId = cryptoId("d3_Farmer's Walk");
-      items.forEach(item => {
-        if (item.ex.id === deadBugId && rotFlipped)  item.offWeek = true;
-        if (item.ex.id === farmersId  && !rotFlipped) item.offWeek = true;
-      });
-    }
-    return items;
-  })();
+  // Display list: the saved exercise order, every week.
+  const displayItems = exercises.map(ex => ({ ex, offWeek: false }));
 
   return (
     <div className="app-scroll" style={{ background: screen === 'train' ? 'var(--paper-2)' : 'var(--paper)' }}>
@@ -1105,16 +1065,6 @@ function App() {
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 6 }}>
               <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 500 }}>{day.subtitle}</span>
-              {displayItems.length >= 2 && (
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                  background: 'var(--accent-tint)', borderRadius: 4, padding: '3px 7px',
-                  fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase',
-                  color: 'var(--muted)', maxWidth: '100%', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-                }}>
-                  {rotFlipped ? 'Week B' : 'Week A'} · leads with <b style={{ color: 'var(--accent)' }}>{displayItems[0].ex.name}</b>
-                </span>
-              )}
             </div>
           </header>
 
@@ -1523,6 +1473,7 @@ function EditPane({ day, dayIndex, onUpdate, onRemove, onAdd, onMove, onTogglePl
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 11, color: 'var(--muted)' }}>Theme, import & reset are in Settings</span>
       </div>
+
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, marginTop: 20 }}>
         {exercises.map((ex, i) => {
