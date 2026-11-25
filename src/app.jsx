@@ -591,6 +591,7 @@ function App() {
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   // Live Exercise Mode — { exId, originRect } of the tapped card, or null.
   const [liveEx, setLiveEx] = useState(null);
   // Bumped on every preset write so the list re-reads from localStorage.
@@ -1135,6 +1136,15 @@ function App() {
             }}>Progressive Overload</div>
             <span style={{ flex: 1, height: 1, background: 'var(--hair)' }} />
             <button
+              onClick={() => setShowStats(true)}
+              className="tap"
+              style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em',
+                color: 'var(--ink-2)', textTransform: 'uppercase',
+                padding: '8px 0',
+              }}
+            >Stats</button>
+            <button
               onClick={() => setShowHistory(true)}
               className="tap"
               style={{
@@ -1400,6 +1410,8 @@ function App() {
           onClose={() => setShowSync(false)}
         />
       )}
+
+      {showStats && <StatsSheet store={store} onClose={() => setShowStats(false)} />}
 
       {showHistory && (
         <HistorySheet

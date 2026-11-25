@@ -679,7 +679,286 @@ function buildPrompts(a, ex) {
   return prompts;
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  CLUSTER COACH (v5) — matches the real training method:
+//    one weight · every set to failure · stop when a set hits 3–4 reps.
+//  Weight goes up when the FIRST set reaches the top of the rep range.
+//  Total reps is the safety check (big drop → hold) and the progress score.
+//  READ-ONLY: these functions never change stored data or settings.
+// ═══════════════════════════════════════════════════════════════
+const LBS_PER_KG = 2.20462;
+const BIG_DROP = 0.85; // total below 85% of last time at the same weight → hold
+
+// Convert a weight between units ('' / unknown → unchanged).
+function convertWeight(w, from, to) {
+  if (!w || !from || !to || from === to) return w || 0;
+  if (from === 'kg' && to === 'lbs') return w * LBS_PER_KG;
+  if (from === 'lbs' && to === 'kg') return w / LBS_PER_KG;
+  return w;
+}
+
+// Increment expressed in a given unit.
+function stepInUnit(ex, unit) {
+  const step = incrementFor(ex);
+  if (!ex.unit || !unit || unit === ex.unit) return step;
+  if (unit === 'kg') return Math.max(1.25, roundToStep(step / LBS_PER_KG, 1.25));
+  return Math.max(2.5, roundToStep(step * LBS_PER_KG, 2.5));
+}
+
+// Stats for one logged cluster session.
+function clusterStats(ex, session) {
+  const sets = (session && session.sets) || [];
+  const unit = isBodyweight(ex) ? '' : (session.unit !== undefined ? session.unit : ex.unit) || ex.unit || '';
+  return {
+    weight: sets.length ? (sets[0].weight || 0) : 0,
+    unit,
+    first: sets.length ? sets[0].reps : 0,
+    total: totalReps(sets),
+    count: sets.length,
+    date: session ? session.date : null,
+  };
+}
+
+function sameWeight(a, b) {
+  const bw = convertWeight(b.weight, b.unit, a.unit);
+  return Math.abs(a.weight - bw) < (a.unit === 'kg' ? 0.3 : 0.6);
+}
+
+function clusterHistory(history) {
+  return (history || []).filter(s => s && s.clusterMode && s.sets && s.sets.length);
+}
+
+// Most recent earlier session at the same weight as `cur` (or null).
+function lastAtSameWeight(ex, cur, earlier) {
+  for (let i = earlier.length - 1; i >= 0; i--) {
+    const st = clusterStats(ex, earlier[i]);
+    if (sameWeight(cur, st)) return st;
+  }
+  return null;
+}
+
+// Review of a just-finished (or past) session against earlier history.
+//   raise   → first set hit the top AND total didn't drop a lot
+//   hold    → otherwise
+// Returns { first, total, prev, firstHit, bigDrop, raise, nextWeight, lines[] }.
+function coachReview(ex, sets, earlierHistory, unit) {
+  const bw = isBodyweight(ex);
+  const cur = clusterStats(ex, { sets, unit });
+  const earlier = clusterHistory(earlierHistory);
+  const prev = earlier.length ? lastAtSameWeight(ex, cur, earlier) : null;
+  const top = ex.repMax;
+  const firstHit = cur.first >= top;
+  const bigDrop = !!(prev && prev.total > 0 && cur.total < prev.total * BIG_DROP);
+  const repsOnly = ex.progressionType === 'reps';
+  const raise = !bw && !repsOnly && firstHit && !bigDrop;
+  const u = cur.unit ? ' ' + cur.unit : '';
+  const nextWeight = bw ? 0 : roundToStep(cur.weight + stepInUnit(ex, cur.unit), stepInUnit(ex, cur.unit));
+
+  const lines = [];
+  // Line 1 — first set vs the top of the range.
+  lines.push(firstHit
+    ? `First set: ${cur.first} reps. You hit the top (${top}).`
+    : `First set: ${cur.first} reps. Top is ${top}. ${top - cur.first} to go.`);
+  // Line 2 — total reps vs last time at this weight.
+  if (prev) {
+    const d = cur.total - prev.total;
+    lines.push(d > 0 ? `Total: ${cur.total} reps. Up ${d} from last time.`
+      : d < 0 ? `Total: ${cur.total} reps. Down ${-d} from last time.`
+      : `Total: ${cur.total} reps. Same as last time.`);
+  } else {
+    lines.push(`Total: ${cur.total} reps. First time at this weight.`);
+  }
+  // Line 3 — the call.
+  if (raise) lines.push(`Next session: ${fmt(nextWeight)}${u}.`);
+  else if (firstHit && bigDrop) lines.push(`Total dropped a lot. Stay at ${fmt(cur.weight)}${u} one more time.`);
+  else if (firstHit && repsOnly) lines.push('Top reached. This one is reps-only — add weight only if it feels safe.');
+  else if (firstHit && bw) lines.push('Top reached. Keep adding reps.');
+  else lines.push(bw ? 'Next session: beat your first set.' : `Next session: stay at ${fmt(cur.weight)}${u}. Beat your first set.`);
+
+  return { ...cur, prev, firstHit, bigDrop, raise, nextWeight, lines };
+}
+
+// Plan for the NEXT session, from stored history only.
+// Returns null when there's no cluster history yet.
+//   { weight, unit, firstGoal, totalGoal, up, hold, text }
+function coachPlan(ex, history) {
+  const hist = clusterHistory(history);
+  if (!hist.length) return null;
+  const bw = isBodyweight(ex);
+  const last = hist[hist.length - 1];
+  const r = coachReview(ex, last.sets, hist.slice(0, -1), clusterStats(ex, last).unit);
+  const u = r.unit ? ' ' + r.unit : '';
+
+  // Went up already? (weight range moved past the last weight) → plan the new weight.
+  if (r.raise) {
+    return {
+      weight: r.nextWeight, unit: r.unit, up: true, hold: false,
+      firstGoal: ex.repMin, totalGoal: null,
+      text: `${fmt(r.nextWeight)}${u}. New weight. First set goal: ${ex.repMin}+ reps.`,
+    };
+  }
+  const firstGoal = r.bigDrop ? r.first : Math.min(ex.repMax, r.first + 1);
+  const totalGoal = r.total + 1;
+  const w = bw ? '' : `${fmt(r.weight)}${u}. `;
+  return {
+    weight: bw ? 0 : r.weight, unit: r.unit, up: false, hold: r.bigDrop,
+    firstGoal, totalGoal,
+    text: r.bigDrop
+      ? `${w}Last time dipped. Match ${r.first} on the first set.`
+      : `${w}First set goal: ${firstGoal}. Total goal: ${totalGoal}+.`,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  STATS ENGINE — per-muscle-group trends. READ-ONLY.
+//  Strength score per session = best set's estimated 1-rep max
+//  (Epley: kg × (1 + reps/30)); bodyweight = best reps.
+//  Group trend = average % change of its exercises inside the window.
+//  Volume = sets per week (every set is taken to failure → hard sets).
+// ═══════════════════════════════════════════════════════════════
+const MUSCLE_RULES = [
+  [/rear delt|face pull/i, 'Shoulders'],
+  [/leg curl|nordic|romanian/i, 'Hamstrings'],
+  [/finger curl|reverse curl|pronation|wrist|farmer/i, 'Forearms'],
+  [/curl/i, 'Biceps'],
+  [/pushdown|triceps|close-grip/i, 'Triceps'],
+  [/shoulder press|lateral raise|front raise|overhead press/i, 'Shoulders'],
+  [/pulldown|\brows?\b|pull-?up|\bchin-?up/i, 'Back'],
+  [/fly|pec deck|bench|chest|press/i, 'Chest'],   // leg press is caught in muscleGroup()
+  [/leg extension|leg press|squat|lunge/i, 'Quads'],
+  [/glute|kickback|hip ab|hip ad|hip thrust/i, 'Glutes & hips'],
+  [/calf/i, 'Calves'],
+  [/dead bug|woodchop|plank|crunch|core|ab wheel/i, 'Core'],
+];
+const MUSCLE_ORDER = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms',
+  'Quads', 'Hamstrings', 'Glutes & hips', 'Calves', 'Core', 'Other'];
+
+function muscleGroup(name) {
+  if (/leg press/i.test(name)) return 'Quads';
+  for (const [re, g] of MUSCLE_RULES) if (re.test(name)) return g;
+  return 'Other';
+}
+
+// Strength score for one session. Weighted → kg e1RM; bodyweight → best reps.
+function sessionScore(ex, session) {
+  const unit = (session.unit !== undefined ? session.unit : ex.unit) || ex.unit || '';
+  let best = 0, bw = true;
+  for (const s of session.sets || []) {
+    const w = s.weight || 0;
+    if (w > 0) {
+      bw = false;
+      const kg = unit === 'lbs' ? w / LBS_PER_KG : w;
+      best = Math.max(best, kg * (1 + (s.reps || 0) / 30));
+    }
+  }
+  if (bw) best = Math.max(0, ...(session.sets || []).map(s => s.reps || 0));
+  return { score: best, bodyweight: bw };
+}
+
+const TREND_FLAT = 0.02; // within ±2% → flat
+function trendOf(pct) {
+  if (pct == null) return 'none';
+  return pct > TREND_FLAT ? 'up' : pct < -TREND_FLAT ? 'down' : 'flat';
+}
+
+// Build the whole dashboard model from the store.
+//   weeks: number of weeks back (null = all time)
+function buildStats(store, weeks, now = new Date()) {
+  const cutoff = weeks ? new Date(now.getTime() - weeks * 7 * 86400000) : null;
+  // Merge exercises with the same name across days (e.g. Low Rows on Day 1 & 4).
+  const byName = new Map();
+  for (const d of store.days || []) {
+    for (const ex of d.exercises || []) {
+      const list = (store.sessions || {})[ex.id] || [];
+      if (!byName.has(ex.name)) byName.set(ex.name, { name: ex.name, ex, sessions: [] });
+      const rec = byName.get(ex.name);
+      for (const s of list) {
+        if (!s || !s.date || !s.sets || !s.sets.length) continue;
+        const dt = new Date(s.date);
+        if (cutoff && dt < cutoff) continue;
+        rec.sessions.push({ date: dt, week: isoWeekKey(dt), sets: s.sets.length, ...sessionScore(ex, s), raw: s, ex });
+      }
+    }
+  }
+
+  // Week axis for the window.
+  const weekKeys = [];
+  const allDates = [...byName.values()].flatMap(r => r.sessions.map(s => s.date));
+  const start = cutoff || (allDates.length ? new Date(Math.min(...allDates)) : now);
+  for (let t = new Date(start); t <= now; t = new Date(t.getTime() + 7 * 86400000)) {
+    const k = isoWeekKey(t);
+    if (!weekKeys.includes(k)) weekKeys.push(k);
+  }
+  const nowKey = isoWeekKey(now);
+  if (!weekKeys.includes(nowKey)) weekKeys.push(nowKey);
+
+  // Per exercise.
+  const exercises = [];
+  for (const rec of byName.values()) {
+    if (!rec.sessions.length) continue;
+    rec.sessions.sort((a, b) => a.date - b.date);
+    const first = rec.sessions[0], last = rec.sessions[rec.sessions.length - 1];
+    const pct = rec.sessions.length >= 2 && first.score > 0 ? last.score / first.score - 1 : null;
+    const weekly = {};
+    for (const s of rec.sessions) weekly[s.week] = Math.max(weekly[s.week] || 0, s.score);
+    exercises.push({
+      name: rec.name, group: muscleGroup(rec.name), ex: rec.ex,
+      count: rec.sessions.length, sets: rec.sessions.reduce((n, s) => n + s.sets, 0),
+      first: first.score, last: last.score, bodyweight: last.bodyweight,
+      lastSession: last.raw, lastDate: last.date,
+      pct, trend: trendOf(pct), weekly,
+    });
+  }
+
+  const allSessions = [...byName.values()].flatMap(r => r.sessions);
+  const trainedWeeks = new Set(allSessions.map(s => s.week)).size;
+
+  // Per muscle group.
+  const groups = MUSCLE_ORDER.map(g => {
+    const exs = exercises.filter(e => e.group === g);
+    if (!exs.length) return null;
+    const withTrend = exs.filter(e => e.pct != null);
+    const pct = withTrend.length ? withTrend.reduce((n, e) => n + e.pct, 0) / withTrend.length : null;
+    // Strength index per week: mean of (week best / exercise's first score).
+    const index = weekKeys.map(k => {
+      const vals = exs.filter(e => e.weekly[k] && e.first > 0).map(e => e.weekly[k] / e.first);
+      return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length - 1) : null;
+    });
+    // Sets per week.
+    const setsPerWeek = weekKeys.map(k => exs.reduce((n, e) =>
+      n + byName.get(e.name).sessions.filter(s => s.week === k).reduce((m, s) => m + s.sets, 0), 0));
+    const activeWeeks = setsPerWeek.filter(n => n > 0).length;
+    const totalSets = setsPerWeek.reduce((a, b) => a + b, 0);
+    return {
+      name: g, pct, trend: trendOf(pct), exercises: exs.sort((a, b) => (b.pct ?? -9) - (a.pct ?? -9)),
+      index, setsPerWeek, totalSets,
+      activeWeeks,
+      avgSets: trainedWeeks ? totalSets / trainedWeeks : 0, // per week you trained
+    };
+  }).filter(Boolean);
+
+  const trended = groups.filter(g => g.pct != null);
+  const best = trended.length ? trended.reduce((a, b) => (b.pct > a.pct ? b : a)) : null;
+  const worst = trended.length ? trended.reduce((a, b) => (b.pct < a.pct ? b : a)) : null;
+  return {
+    weekKeys, groups, exercises,
+    totals: {
+      sessions: allSessions.length,
+      sets: allSessions.reduce((n, s) => n + s.sets, 0),
+      trainedWeeks, weeks: weekKeys.length,
+      up: groups.filter(g => g.trend === 'up').length,
+      down: groups.filter(g => g.trend === 'down').length,
+    },
+    best: best && best.pct > TREND_FLAT ? best : null,
+    worst: worst && worst.pct < -TREND_FLAT ? worst : null,
+  };
+}
+
 Object.assign(window, {
+  // stats engine
+  muscleGroup, sessionScore, buildStats, MUSCLE_ORDER,
+  // coach v5 — cluster coach
+  convertWeight, stepInUnit, clusterStats, coachReview, coachPlan, clusterHistory,
   deriveStatus, hitCeiling, repButtonRange, weightButtonRange,
   roundToStep, fmt, targetString, isoWeekKey, isoWeekStart,
   weekLabel, weekRangeLabel, shortDate, fullDate,
@@ -1270,6 +1549,7 @@ Object.assign(window, {
 })();
 </script>
 <script type="text/babel" data-presets="react" src="src/tracker.jsx"></script>
+<script type="text/babel" data-presets="react" src="src/stats.jsx"></script>
 <script type="text/babel" data-presets="react" src="src/app.jsx"></script>
 
 

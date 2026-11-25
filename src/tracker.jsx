@@ -279,8 +279,35 @@ function clusterTriggersProgression(sets) {
   return dropIdx >= 4;                          // hit fatigue on 5th+ set
 }
 
+// ── Live goal strip (during a cluster) ────────────────────────
+// Shows today's targets and how you're tracking against them.
+function GoalStrip({ plan, miniSets }) {
+  const total = miniSets.reduce((n, s) => n + s.reps, 0);
+  const first = miniSets.length ? miniSets[0].reps : null;
+  const firstGoal = plan ? plan.firstGoal : null;
+  const totalGoal = plan ? plan.totalGoal : null;
+  const ok = 'var(--st-stable)';
+  const cell = (label, value, goal, met) => (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700 }}>{label}</div>
+      <div className="num" style={{ fontSize: 18, fontWeight: 700, color: met ? ok : 'var(--ink)', marginTop: 2 }}>
+        {value == null ? '—' : value}
+        {goal != null && <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}> / {goal}{label === 'Total' ? '+' : ''}</span>}
+        {met && <span style={{ fontSize: 13, marginLeft: 4 }}>✓</span>}
+      </div>
+    </div>
+  );
+  return (
+    <div style={{ display: 'flex', gap: 12, padding: '12px 14px', marginTop: 10, marginBottom: 4, background: 'var(--paper-2)', borderRadius: 6 }}>
+      {cell('First set', first, firstGoal, first != null && firstGoal != null && first >= firstGoal)}
+      {cell('Total', miniSets.length ? total : null, totalGoal, totalGoal != null && total >= totalGoal)}
+      {cell('Sets', miniSets.length || null, null, false)}
+    </div>
+  );
+}
+
 // ── Cluster Logging Panel ─────────────────────────────────────
-function ClusterLoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustomWeight, onAddCustomWeight, onSwitchToPlain }) {
+function ClusterLoggingPanel({ ex, plan, onCancel, onDone, customWeights, onRemoveCustomWeight, onAddCustomWeight, onSwitchToPlain }) {
   const restDuration = ex.restSeconds || 30;
   const bodyweight = ex.unit === '' && ex.weightMin === 0 && ex.weightMax === 0;
   const [logUnit, setLogUnit] = useState(ex.unit || 'lbs');
@@ -305,7 +332,8 @@ function ClusterLoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCust
     if (onAddCustomWeight) onAddCustomWeight(v);
   };
 
-  const [weight, setWeight] = useState(bodyweight ? 0 : null);
+  const planWeight = plan && !bodyweight && plan.weight > 0 && (plan.unit || ex.unit || 'lbs') === logUnit ? plan.weight : null;
+  const [weight, setWeight] = useState(bodyweight ? 0 : planWeight);
   const [miniSets, setMiniSets] = useState([]);
   const [currentReps, setCurrentReps] = useState(8);
   const [phase, setPhase] = useState(bodyweight ? 'logging' : 'pickWeight');
@@ -417,6 +445,8 @@ function ClusterLoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCust
           }}>{fmt(weight)}{logUnit ? ' ' + logUnit : ''}</span>
         )}
       </HairlineHeading>
+
+      <GoalStrip plan={plan} miniSets={miniSets} />
 
       {/* Mini-sets logged so far */}
       {miniSets.length > 0 && (
@@ -817,6 +847,7 @@ function ExerciseCard({ ex, history, note, done, onOpenLive, onSaveNote, onDelet
   const cardRef = useRef(null);
   const status = deriveStatus(ex);
 
+  const plan = useMemo(() => coachPlan(ex, history), [ex, history]);
   const summary = useMemo(() => {
     if (!history.length) return null;
     const last = history[history.length - 1];
@@ -861,6 +892,15 @@ function ExerciseCard({ ex, history, note, done, onOpenLive, onSaveNote, onDelet
               </span>
             )}
           </div>
+          {plan && !done && (
+            <div className="num" style={{
+              marginTop: 8, fontSize: 13, fontWeight: 600, lineHeight: 1.4,
+              color: plan.up ? 'var(--st-stable)' : plan.hold ? 'var(--st-plateau)' : 'var(--accent)',
+            }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.10em', textTransform: 'uppercase', marginRight: 6 }}>Today</span>
+              {plan.text}
+            </div>
+          )}
         </div>
         <StatusBadge status={status} />
       </div>
@@ -1073,6 +1113,56 @@ function LiveSettingsPanel({ ex, onSave, onCancel }) {
   );
 }
 
+// ── Coach cards ────────────────────────────────────────────────
+function CoachBox({ kicker, tone = 'accent', children }) {
+  const fg = tone === 'stable' ? 'var(--st-stable)' : tone === 'warn' ? 'var(--st-plateau)' : 'var(--accent)';
+  return (
+    <div className="reveal" style={{
+      marginTop: 14, marginBottom: 4, padding: '14px 16px',
+      background: 'var(--paper-2)', borderLeft: `3px solid ${fg}`, borderRadius: 4,
+    }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: fg, fontWeight: 700, marginBottom: 6 }}>{kicker}</div>
+      {children}
+    </div>
+  );
+}
+
+// Before the session: what to aim for today.
+function CoachPlanCard({ ex, plan }) {
+  if (!plan) {
+    return (
+      <CoachBox kicker="Today">
+        <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.45 }}>
+          No history yet. Pick a weight where your first set lands at {ex.repMin}–{ex.repMax} reps. Go to failure each set. Stop at 3–4 reps.
+        </div>
+      </CoachBox>
+    );
+  }
+  return (
+    <CoachBox kicker={plan.up ? 'Today · weight up' : plan.hold ? 'Today · hold' : 'Today'} tone={plan.up ? 'stable' : plan.hold ? 'warn' : 'accent'}>
+      <div style={{ fontSize: 15, color: 'var(--ink)', fontWeight: 600, lineHeight: 1.45 }}>{plan.text}</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Go to failure each set. Stop at 3–4 reps.</div>
+    </CoachBox>
+  );
+}
+
+// After the session: how it went and what's next.
+function CoachReviewCard({ review }) {
+  const tone = review.raise ? 'stable' : review.bigDrop ? 'warn' : 'accent';
+  return (
+    <CoachBox kicker="Coach" tone={tone}>
+      {review.lines.map((l, i) => (
+        <div key={i} style={{
+          fontSize: i === review.lines.length - 1 ? 15 : 13.5,
+          fontWeight: i === review.lines.length - 1 ? 600 : 500,
+          color: i === review.lines.length - 1 ? 'var(--ink)' : 'var(--ink-2)',
+          lineHeight: 1.45, marginTop: i ? 3 : 0,
+        }}>{l}</div>
+      ))}
+    </CoachBox>
+  );
+}
+
 // ── Live Exercise Mode ─────────────────────────────────────────
 function LiveExerciseView({
   ex, history, note, customWeights, originRect, onClose,
@@ -1084,6 +1174,8 @@ function LiveExerciseView({
   const [logMode, setLogMode] = useState('cluster'); // 'cluster' | 'plain'
   const [justLogged, setJustLogged] = useState(null);
   const [progConfirmed, setProgConfirmed] = useState(false);
+  // Plan comes from history BEFORE this visit's log (read-only).
+  const plan = useMemo(() => coachPlan(ex, history), [ex, history]);
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setPhase('open'));
@@ -1118,9 +1210,9 @@ function LiveExerciseView({
     if (onAddCustomWeight) {
       sets.forEach(s => { if (s.weight > 0) onAddCustomWeight(ex.id, s.weight); });
     }
+    const review = clusterMode ? coachReview(ex, sets, history, unit) : null;
     onLog(ex.id, { sets, clusterMode, unit }, deriveStatus(ex));
-    const progTriggered = clusterMode ? clusterTriggersProgression(sets) : false;
-    setJustLogged({ sets, clusterMode, progTriggered });
+    setJustLogged({ sets, clusterMode, review, progTriggered: !!(review && review.raise) });
   };
 
   const handleSaveSettings = (draft) => {
@@ -1176,9 +1268,12 @@ function LiveExerciseView({
 
         <PrevSessionChip ex={ex} history={history} />
 
+        {!justLogged && logMode === 'cluster' && <CoachPlanCard ex={ex} plan={plan} />}
+
         {justLogged ? (
           <div>
             <ClusterDoneSummary sets={justLogged.sets} ex={ex} />
+            {justLogged.review && <CoachReviewCard review={justLogged.review} />}
 
             {/* Progression prompt */}
             {justLogged.clusterMode && justLogged.progTriggered && !progConfirmed && (
@@ -1191,10 +1286,9 @@ function LiveExerciseView({
                 <div style={{
                   fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em',
                   textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700, marginBottom: 8,
-                }}>Progression signal</div>
+                }}>Add weight?</div>
                 <div style={{ fontSize: 15, color: 'var(--ink)', fontWeight: 500, lineHeight: 1.4 }}>
-                  You completed <span className="num" style={{ color: 'var(--accent)', fontWeight: 700 }}>{justLogged.sets.length}</span> mini-sets — strong session.
-                  Increase weight next session?
+                  First set hit the top. Move up to <span className="num" style={{ color: 'var(--accent)', fontWeight: 700 }}>{fmt(justLogged.review.nextWeight)}{justLogged.review.unit ? ' ' + justLogged.review.unit : ''}</span> next session?
                 </div>
                 <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
                   <button onClick={() => setProgConfirmed(true)} className="tap" style={{
@@ -1228,6 +1322,7 @@ function LiveExerciseView({
         ) : logMode === 'cluster' ? (
           <ClusterLoggingPanel
             ex={ex}
+            plan={plan}
             customWeights={customWeights}
             onRemoveCustomWeight={(w) => onRemoveCustomWeight && onRemoveCustomWeight(ex.id, w)}
             onAddCustomWeight={() => {}}
