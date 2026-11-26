@@ -80,15 +80,21 @@
 
   textarea { resize: none; }
 
-  .app-scroll {
-    min-height: 100vh;
+  /* App shell: fixed-height frame. Only .app-scroll scrolls, so the page
+     itself never scrolls and iOS Safari can't shift the bottom tab bar. */
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  #root { height: 100%; }
+  .app-shell {
+    height: 100vh; height: 100dvh;
+    display: flex; flex-direction: column;
+    max-width: 480px; margin: 0 auto;
     background: var(--paper);
-    max-width: 480px;
-    margin: 0 auto;
   }
-
-  @media (max-width: 480px) {
-    .app-scroll { max-width: 100%; }
+  .app-scroll {
+    flex: 1; min-height: 0;
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+    background: var(--paper);
   }
 
   /* ── Motion ─────────────────────────────────────────── */
@@ -791,35 +797,76 @@ function coachReview(ex, sets, earlierHistory, unit) {
   return { ...cur, prev, firstHit, bigDrop, raise, nextWeight, lines };
 }
 
-// Plan for the NEXT session, from stored history only.
-// Returns null when there's no cluster history yet.
-//   { weight, unit, firstGoal, totalGoal, up, hold, text }
+// The exercise's saved target weight (top of its weight range), or null for
+// bodyweight / calibration exercises that have no target weight yet.
+function targetWeight(ex) {
+  if (isBodyweight(ex) || ex.calibration || !(ex.weightMax > 0)) return null;
+  return ex.weightMax;
+}
+
+// Short target line for cards: "Target 60 kg · go up at 14 reps".
+function targetLine(ex) {
+  const tw = targetWeight(ex);
+  const repUnit = ex.repUnit || 'reps';
+  if (isBodyweight(ex)) return `Bodyweight · goal ${ex.repMin}–${ex.repMax} ${repUnit}`;
+  if (tw == null) return targetString(ex);
+  return `Target ${fmt(tw)}${ex.unit ? ' ' + ex.unit : ''} · go up at ${ex.repMax} ${repUnit}`;
+}
+
+// Suggested next target after a session, in the exercise's own unit.
+function suggestedNextTarget(ex, review) {
+  const tw = targetWeight(ex);
+  if (tw == null || !review) return tw;
+  if (!review.raise) return tw;
+  const step = incrementFor(ex);
+  const lastW = convertWeight(review.weight, review.unit, ex.unit);
+  return roundToStep(Math.max(tw, lastW) + step, step);
+}
+
+// Plan for the NEXT session. The weight is the saved target weight (what you
+// set in settings or after your last session); goals come from history.
+// Returns null when there's nothing to plan from.
+//   { weight, unit, firstGoal, totalGoal, up, hold, ready, text }
 function coachPlan(ex, history) {
   const hist = clusterHistory(history);
-  if (!hist.length) return null;
   const bw = isBodyweight(ex);
-  const last = hist[hist.length - 1];
-  const r = coachReview(ex, last.sets, hist.slice(0, -1), clusterStats(ex, last).unit);
-  const u = r.unit ? ' ' + r.unit : '';
+  const tw = targetWeight(ex);
+  const unit = bw ? '' : (ex.unit || '');
+  const u = unit ? ' ' + unit : '';
 
-  // Went up already? (weight range moved past the last weight) → plan the new weight.
-  if (r.raise) {
-    return {
-      weight: r.nextWeight, unit: r.unit, up: true, hold: false,
-      firstGoal: ex.repMin, totalGoal: null,
-      text: `${fmt(r.nextWeight)}${u}. New weight. First set goal: ${ex.repMin}+ reps.`,
-    };
+  if (!hist.length) {
+    if (tw == null) return null;
+    return { weight: tw, unit, firstGoal: ex.repMin, totalGoal: null, up: false, hold: false, ready: false,
+      text: `${fmt(tw)}${u}. First set goal: ${ex.repMin}+ reps.` };
   }
+
+  const last = hist[hist.length - 1];
+  const lastSt = clusterStats(ex, last);
+  const r = coachReview(ex, last.sets, hist.slice(0, -1), lastSt.unit);
+
+  // No target weight (bodyweight / calibration): plan from history alone.
+  if (tw == null) {
+    const firstGoal = r.bigDrop ? r.first : Math.min(ex.repMax, r.first + 1);
+    const w = bw ? '' : `${fmt(r.weight)}${r.unit ? ' ' + r.unit : ''}. `;
+    return { weight: bw ? 0 : r.weight, unit: r.unit, firstGoal, totalGoal: r.total + 1, up: false, hold: r.bigDrop, ready: false,
+      text: r.bigDrop ? `${w}Last time dipped. Match ${r.first} on the first set.` : `${w}First set goal: ${firstGoal}. Total goal: ${r.total + 1}+.` };
+  }
+
+  // Target differs from what you lifted last time → a new weight.
+  if (!sameWeight({ weight: tw, unit }, lastSt)) {
+    const up = convertWeight(lastSt.weight, lastSt.unit, unit) < tw;
+    return { weight: tw, unit, firstGoal: ex.repMin, totalGoal: null, up, hold: false, ready: false,
+      text: `${fmt(tw)}${u}. ${up ? 'New weight. ' : ''}First set goal: ${ex.repMin}+ reps.` };
+  }
+
+  // Same weight as last time → beat it.
   const firstGoal = r.bigDrop ? r.first : Math.min(ex.repMax, r.first + 1);
   const totalGoal = r.total + 1;
-  const w = bw ? '' : `${fmt(r.weight)}${u}. `;
-  return {
-    weight: bw ? 0 : r.weight, unit: r.unit, up: false, hold: r.bigDrop,
-    firstGoal, totalGoal,
-    text: r.bigDrop
-      ? `${w}Last time dipped. Match ${r.first} on the first set.`
-      : `${w}First set goal: ${firstGoal}. Total goal: ${totalGoal}+.`,
-  };
+  let text;
+  if (r.bigDrop) text = `${fmt(tw)}${u}. Last time dipped. Match ${r.first} on the first set.`;
+  else if (r.raise) text = `${fmt(tw)}${u}. You hit the top last time — raise the target in settings when ready.`;
+  else text = `${fmt(tw)}${u}. First set goal: ${firstGoal}. Total goal: ${totalGoal}+.`;
+  return { weight: tw, unit, firstGoal, totalGoal, up: false, hold: r.bigDrop, ready: r.raise, text };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -972,6 +1019,7 @@ Object.assign(window, {
   muscleGroup, sessionScore, buildStats, MUSCLE_ORDER,
   // coach v5 — cluster coach
   convertWeight, stepInUnit, clusterStats, coachReview, coachPlan, clusterHistory,
+  targetWeight, targetLine, suggestedNextTarget,
   deriveStatus, hitCeiling, repButtonRange, weightButtonRange,
   roundToStep, fmt, targetString, isoWeekKey, isoWeekStart,
   weekLabel, weekRangeLabel, shortDate, fullDate,
@@ -1563,9 +1611,9 @@ Object.assign(window, {
 </script>
 <!-- Cache-busting: bump ?v= on every release so phones (iOS home-screen
      apps especially) fetch the new code instead of a stale cached copy. -->
-<script type="text/babel" data-presets="react" src="src/tracker.jsx?v=2026-11-25f"></script>
-<script type="text/babel" data-presets="react" src="src/stats.jsx?v=2026-11-25f"></script>
-<script type="text/babel" data-presets="react" src="src/app.jsx?v=2026-11-25f"></script>
+<script type="text/babel" data-presets="react" src="src/tracker.jsx?v=2026-11-26b"></script>
+<script type="text/babel" data-presets="react" src="src/stats.jsx?v=2026-11-26b"></script>
+<script type="text/babel" data-presets="react" src="src/app.jsx?v=2026-11-26b"></script>
 
 
 </body>
