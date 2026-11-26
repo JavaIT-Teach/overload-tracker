@@ -59,7 +59,7 @@ function VerdictLine({ verdict, style }) {
 }
 
 // ── Weight picker (shared by both panel types) ─────────────────
-function ChoiceRow({ label, options, value, onPick, formatter, unit, optimum, allowCustom, customOptions, onRemoveOption, onTyping, onCommitCustom }) {
+function ChoiceRow({ label, options, value, onPick, formatter, unit, optimum, allowCustom, customOptions, onRemoveOption, onTyping, onCommitCustom, integer }) {
   const [customStr, setCustomStr] = useState('');
   const isCustom = value != null && !options.includes(value);
 
@@ -67,8 +67,9 @@ function ChoiceRow({ label, options, value, onPick, formatter, unit, optimum, al
     if (isCustom) setCustomStr(String(value));
   }, [value, isCustom]);
 
+  const parseVal = (raw) => integer ? parseInt(raw, 10) : parseFloat(raw);
   const commitCustom = (raw) => {
-    const v = parseFloat(raw);
+    const v = parseVal(raw);
     if (Number.isFinite(v) && v >= 0) {
       onPick(v);
       if (onCommitCustom && !options.includes(v)) onCommitCustom(v);
@@ -136,15 +137,15 @@ function ChoiceRow({ label, options, value, onPick, formatter, unit, optimum, al
           }}>
             <input
               type="text"
-              inputMode="decimal"
-              pattern="[0-9]*\.?[0-9]*"
+              inputMode={integer ? 'numeric' : 'decimal'}
+              pattern={integer ? '[0-9]*' : '[0-9]*\.?[0-9]*'}
               placeholder="Custom"
               value={customStr}
               onFocus={() => onTyping && onTyping(true)}
               onChange={e => {
-                const raw = e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.');
+                const raw = integer ? e.target.value.replace(/[^0-9]/g, '') : e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.');
                 setCustomStr(raw);
-                const v = parseFloat(raw);
+                const v = parseVal(raw);
                 if (Number.isFinite(v) && v >= 0) onPick(v);
               }}
               onBlur={e => { onTyping && onTyping(false); commitCustom(e.target.value); }}
@@ -216,6 +217,9 @@ function Stepper({ label, value, step, min, max, onChange, unit, disabled, hint 
 // ── Rep tap grid for cluster mini-sets ─────────────────────────
 function RepButtons({ value, onChange }) {
   const opts = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20];
+  const isCustom = value != null && !opts.includes(value);
+  const [customStr, setCustomStr] = useState(isCustom ? String(value) : '');
+  useEffect(() => { if (!isCustom) setCustomStr(''); }, [isCustom]);
   return (
     <div>
       <div style={{
@@ -236,6 +240,25 @@ function RepButtons({ value, onChange }) {
             }}>{n}</button>
           );
         })}
+        <input
+          type="text" inputMode="numeric" pattern="[0-9]*" placeholder="Custom"
+          aria-label="Custom reps"
+          value={customStr}
+          onChange={e => {
+            const raw = e.target.value.replace(/[^0-9]/g, '').slice(0, 3);
+            setCustomStr(raw);
+            const n = parseInt(raw, 10);
+            if (n > 0) onChange(n);
+          }}
+          className="num"
+          style={{
+            width: 97, height: 42, borderRadius: 6, padding: '0 10px', outline: 'none',
+            fontSize: 16, fontWeight: 500, textAlign: 'center',
+            background: isCustom ? 'var(--ink)' : 'transparent',
+            color: isCustom ? 'var(--paper)' : 'var(--ink)',
+            border: `1px solid ${isCustom ? 'var(--ink)' : 'var(--hair)'}`,
+          }}
+        />
       </div>
     </div>
   );
@@ -627,6 +650,7 @@ function PlainLoggingPanel({ ex, onCancel, onDone, customWeights, onRemoveCustom
                     value={s.reps}
                     onPick={(v) => updateSet(i, { reps: v })}
                     optimum={[ex.repMin, ex.repMax]}
+                    allowCustom integer onTyping={setTyping}
                   />
                   {!bodyweight && (
                     <ChoiceRow
