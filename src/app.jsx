@@ -595,10 +595,13 @@ function App() {
     try { const v = localStorage.getItem(SCREEN_KEY); return ['train', 'stats', 'history', 'settings'].includes(v) ? v : 'train'; } catch (e) { return 'train'; }
   });
   const setScreen = (v) => {
-    setScreenState(v); setEditMode(false); setDayMenuOpen(false); window.scrollTo(0, 0);
+    setScreenState(v); setEditMode(false); setDayMenuOpen(false); scrollTop();
     try { localStorage.setItem(SCREEN_KEY, v); } catch (e) {}
   };
   const [dayMenuOpen, setDayMenuOpen] = useState(false);
+  // The content area scrolls (not the page), so the tab bar never moves.
+  const scrollRef = useRef(null);
+  const scrollTop = () => { if (scrollRef.current) scrollRef.current.scrollTop = 0; };
   // Live Exercise Mode — { exId, originRect } of the tapped card, or null.
   const [liveEx, setLiveEx] = useState(null);
   // Bumped on every preset write so the list re-reads from localStorage.
@@ -627,7 +630,7 @@ function App() {
   // an OS-triggered tab reload) would get wiped immediately after loading.
   const isInitialDayRender = useRef(true);
   useEffect(() => {
-    window.scrollTo(0, 0);
+    scrollTop();
     if (isInitialDayRender.current) {
       isInitialDayRender.current = false;
       return;
@@ -1035,7 +1038,8 @@ function App() {
   const displayItems = exercises.map(ex => ({ ex, offWeek: false }));
 
   return (
-    <div className="app-scroll" style={{ background: screen === 'train' ? 'var(--paper-2)' : 'var(--paper)' }}>
+    <div className="app-shell">
+    <div className="app-scroll" ref={scrollRef} style={{ background: screen === 'train' ? 'var(--paper-2)' : 'var(--paper)' }}>
       {screen === 'train' && (
         <div key="train" className="anim-screen">
           {/* Compact sticky header: day dropdown + edit toggle */}
@@ -1068,7 +1072,7 @@ function App() {
             </div>
           </header>
 
-          <main style={{ padding: '14px 12px 110px' }}>
+          <main style={{ padding: '14px 12px 28px' }}>
             {!editMode && (() => {
               const active = displayItems.filter(i => !i.offWeek);
               const doneCount = active.filter(i => doneIds.has(i.ex.id)).length;
@@ -1231,6 +1235,7 @@ function App() {
         />
       )}
 
+    </div>
       <TabBar screen={screen} onPick={setScreen} />
 
       {liveEx && (() => {
@@ -1605,15 +1610,14 @@ function EditRow({ ex, isFirst, isLast, onMoveUp, onMoveDown, onUpdate, onRemove
         display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10,
         marginTop: 10, padding: 10, background: 'rgba(0, 0, 0, 0.03)', borderRadius: 6,
       }}>
-        <NumField label="Rep min" value={ex.repMin} min={1} max={ex.repMax} onChange={v => onUpdate(ex.id, { repMin: v })} />
-        <NumField label="Rep max" value={ex.repMax} min={ex.repMin} max={ex.repCap} onChange={v => onUpdate(ex.id, { repMax: v })} />
+        <NumField label="First-set goal" value={ex.repMin} min={1} max={ex.repMax} onChange={v => onUpdate(ex.id, { repMin: v })} />
+        <NumField label="Go up at (reps)" value={ex.repMax} min={ex.repMin} max={ex.repCap} onChange={v => onUpdate(ex.id, { repMax: v })} />
       </div>
       <div style={{
         display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10,
         marginTop: 10, padding: 10, background: 'rgba(46, 113, 114, 0.07)', borderRadius: 6,
       }}>
-        <NumField label={`Wt min (${ex.unit || '—'})`} value={ex.weightMin} step={ex.weightStep} min={0} max={ex.weightMax} onChange={v => onUpdate(ex.id, { weightMin: v })} />
-        <NumField label={`Wt max (${ex.unit || '—'})`} value={ex.weightMax} step={ex.weightStep} min={ex.weightMin} max={9999} onChange={v => onUpdate(ex.id, { weightMax: v })} />
+        <NumField label={`Target weight (${ex.unit || '—'})`} value={ex.weightMax} step={ex.weightStep} min={0} max={9999} onChange={v => onUpdate(ex.id, { weightMin: v, weightMax: v })} />
       </div>
       <div style={{ marginTop: 10 }}>
         <ProgressionTypeToggle
@@ -2480,7 +2484,7 @@ function HistoryDayEditor({ store, dateKey, onEditSets, onAddSession, onRemoveSe
 function Sheet({ title, children, onClose, titleStyle }) {
   if (React.useContext(ScreenModeCtx)) {
     return (
-      <div style={{ padding: 'calc(env(safe-area-inset-top, 0px) + 18px) 18px 110px' }}>
+      <div style={{ padding: 'calc(env(safe-area-inset-top, 0px) + 18px) 18px 32px' }}>
         <h1 style={{
           margin: '0 0 18px', fontFamily: 'var(--font-sans)', fontWeight: 700,
           fontSize: 32, color: 'var(--ink)', letterSpacing: '-0.025em',
@@ -2549,7 +2553,7 @@ function TabBar({ screen, onPick }) {
   const tabs = [['train', 'Train'], ['stats', 'Stats'], ['history', 'History'], ['settings', 'Settings']];
   return (
     <nav style={{
-      position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 50,
+      flexShrink: 0, position: 'relative', zIndex: 50,
       background: 'var(--paper)', borderTop: '1px solid var(--hair)',
       paddingBottom: 'env(safe-area-inset-bottom, 0px)',
     }}>
@@ -2658,7 +2662,7 @@ function SettingsScreen({ sync, onOpenSync, palette, onPaletteChange, onShowImpo
   const dot = st === 'ok' ? '#3CCB8F' : st === 'error' || st === 'conflict' ? '#FF8A80' : st === 'off' ? '#8A8A94' : '#FFB020';
   const text = { off: 'Not connected', pending: 'Not sent yet', saving: 'Saving…', ok: `Saved ${sync.at ? new Date(sync.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}`, conflict: 'Conflict', error: 'Error' }[st] || st;
   return (
-    <div style={{ padding: 'calc(env(safe-area-inset-top, 0px) + 18px) 18px 110px' }}>
+    <div style={{ padding: 'calc(env(safe-area-inset-top, 0px) + 18px) 18px 32px' }}>
       <h1 style={{ margin: '0 0 22px', fontWeight: 700, fontSize: 32, color: 'var(--ink)', letterSpacing: '-0.025em' }}>Settings</h1>
 
       <SettingsSection title="Backup">

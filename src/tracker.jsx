@@ -887,7 +887,7 @@ function ExerciseCard({ ex, history, note, done, onOpenLive, onSaveNote, onDelet
             marginTop: 6, fontSize: 12, color: 'var(--muted)',
             display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8, fontWeight: 500,
           }}>
-            <span className="num">{targetString(ex)}</span>
+            <span className="num">{targetLine(ex)}</span>
             {ex.notation && (
               <span style={{ color: 'var(--muted-2)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.04em' }}>
                 · {ex.notation}
@@ -942,8 +942,6 @@ function ExerciseCard({ ex, history, note, done, onOpenLive, onSaveNote, onDelet
           <span style={{ marginLeft: 5, display: 'inline-block', transform: historyOpen ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease' }}>▾</span>
         </button>
       </div>
-
-      <SummaryCard summary={summary} />
 
       <div onClick={e => e.stopPropagation()}>
         <ExerciseNote note={note} onSave={(text) => onSaveNote(ex.id, text)} onDelete={() => onDeleteNote(ex.id)} />
@@ -1103,10 +1101,11 @@ function LiveSettingsPanel({ ex, onSave, onCancel }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <NumField label="Sets" value={draft.sets} min={1} max={10} onChange={v => set({ sets: v })} />
         <NumField label="Rep cap" value={draft.repCap} min={1} max={100} onChange={v => set({ repCap: v })} />
-        <NumField label="Rep min" value={draft.repMin} min={1} max={draft.repMax} onChange={v => set({ repMin: v })} />
-        <NumField label="Rep max" value={draft.repMax} min={draft.repMin} max={draft.repCap} onChange={v => set({ repMax: v })} />
-        <NumField label={`Wt min (${ex.unit || '—'})`} value={draft.weightMin} step={ex.weightStep} min={0} max={draft.weightMax} onChange={v => set({ weightMin: v })} />
-        <NumField label={`Wt max (${ex.unit || '—'})`} value={draft.weightMax} step={ex.weightStep} min={draft.weightMin} max={9999} onChange={v => set({ weightMax: v })} />
+        <NumField label="First-set goal (reps)" value={draft.repMin} min={1} max={draft.repMax} onChange={v => set({ repMin: v })} />
+        <NumField label="Go up at (reps)" value={draft.repMax} min={draft.repMin} max={draft.repCap} onChange={v => set({ repMax: v })} />
+        {!(ex.unit === '' && ex.weightMin === 0 && ex.weightMax === 0) && (
+          <NumField label={`Target weight (${ex.unit || '—'})`} value={draft.weightMax} step={ex.weightStep} min={0} max={9999} onChange={v => set({ weightMin: v, weightMax: v })} />
+        )}
         <NumField label="Rest timer (s)" value={draft.restSeconds} min={5} max={60} onChange={v => set({ restSeconds: Math.round(v) })} />
       </div>
 
@@ -1151,6 +1150,43 @@ function CoachPlanCard({ ex, plan }) {
   );
 }
 
+// After the session: pick next session's target weight. Pre-filled with the
+// coach's suggestion; − / + adjust by the exercise's step; Save writes it as
+// the exercise's target (only when you tap Save).
+function NextTargetControl({ ex, review, onSave }) {
+  const step = incrementFor(ex);
+  const current = targetWeight(ex);
+  const [val, setVal] = useState(() => suggestedNextTarget(ex, review));
+  const [saved, setSaved] = useState(false);
+  const u = ex.unit ? ' ' + ex.unit : '';
+  const btn = { width: 44, height: 44, borderRadius: 22, border: '1px solid var(--hair)', background: 'var(--paper)', fontSize: 22, fontWeight: 500, color: 'var(--ink)' };
+  if (saved) {
+    return (
+      <CoachBox kicker="Next target" tone="stable">
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>✓ Next session: {fmt(val)}{u}</div>
+      </CoachBox>
+    );
+  }
+  return (
+    <CoachBox kicker="Next target">
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
+        {val > current ? 'Suggested: go up.' : 'Suggested: same weight.'} Adjust if you want, then save.
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button className="tap" aria-label="Lower" style={btn} onClick={() => setVal(v => Math.max(0, roundToStep(v - step, step)))}>−</button>
+        <div className="num" style={{ flex: 1, textAlign: 'center', fontSize: 24, fontWeight: 700, color: 'var(--ink)' }}>
+          {fmt(val)}<span style={{ fontSize: 14, color: 'var(--muted)', fontWeight: 500 }}>{u}</span>
+        </div>
+        <button className="tap" aria-label="Raise" style={btn} onClick={() => setVal(v => roundToStep(v + step, step))}>+</button>
+      </div>
+      <button className="tap" onClick={() => { onSave(val); setSaved(true); }} style={{
+        width: '100%', height: 44, marginTop: 12, borderRadius: 10,
+        background: 'var(--accent)', color: '#fff', fontSize: 14, fontWeight: 600,
+      }}>Save as next target</button>
+    </CoachBox>
+  );
+}
+
 // After the session: how it went and what's next.
 function CoachReviewCard({ review }) {
   const tone = review.raise ? 'stable' : review.bigDrop ? 'warn' : 'accent';
@@ -1178,7 +1214,6 @@ function LiveExerciseView({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logMode, setLogMode] = useState('cluster'); // 'cluster' | 'plain'
   const [justLogged, setJustLogged] = useState(null);
-  const [progConfirmed, setProgConfirmed] = useState(false);
   // Plan comes from history BEFORE this visit's log (read-only).
   const plan = useMemo(() => coachPlan(ex, history), [ex, history]);
 
@@ -1217,7 +1252,7 @@ function LiveExerciseView({
     }
     const review = clusterMode ? coachReview(ex, sets, history, unit) : null;
     onLog(ex.id, { sets, clusterMode, unit }, deriveStatus(ex));
-    setJustLogged({ sets, clusterMode, review, progTriggered: !!(review && review.raise) });
+    setJustLogged({ sets, clusterMode, review });
   };
 
   const handleSaveSettings = (draft) => {
@@ -1264,7 +1299,7 @@ function LiveExerciseView({
       {/* Body */}
       <div style={{ flex: 1, overflow: 'auto', padding: '16px 18px 32px' }}>
         <div className="num" style={{ fontSize: 12.5, color: 'var(--muted)', fontWeight: 500, marginBottom: 14 }}>
-          {targetString(ex)}{ex.notation ? ` · ${ex.notation}` : ''}
+          {targetLine(ex)}{ex.notation ? ` · ${ex.notation}` : ''}
         </div>
 
         {settingsOpen && (
@@ -1280,42 +1315,13 @@ function LiveExerciseView({
             <ClusterDoneSummary sets={justLogged.sets} ex={ex} />
             {justLogged.review && <CoachReviewCard review={justLogged.review} />}
 
-            {/* Progression prompt */}
-            {justLogged.clusterMode && justLogged.progTriggered && !progConfirmed && (
-              <div className="reveal" style={{
-                marginTop: 14, padding: '16px 18px',
-                background: 'var(--accent-tint)',
-                borderLeft: '3px solid var(--accent)',
-                borderRadius: 4,
-              }}>
-                <div style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em',
-                  textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700, marginBottom: 8,
-                }}>Add weight?</div>
-                <div style={{ fontSize: 15, color: 'var(--ink)', fontWeight: 500, lineHeight: 1.4 }}>
-                  First set hit the top. Move up to <span className="num" style={{ color: 'var(--accent)', fontWeight: 700 }}>{fmt(justLogged.review.nextWeight)}{justLogged.review.unit ? ' ' + justLogged.review.unit : ''}</span> next session?
-                </div>
-                <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-                  <button onClick={() => setProgConfirmed(true)} className="tap" style={{
-                    flex: 1, height: 44, borderRadius: 6,
-                    color: 'var(--muted)', fontSize: 13, fontWeight: 500,
-                  }}>Not yet</button>
-                  <button onClick={() => { onApplyIncrement(ex.id); setProgConfirmed(true); }} className="tap" style={{
-                    flex: 2, height: 44, borderRadius: 6,
-                    background: 'var(--accent)', color: '#FFFFFF',
-                    fontSize: 13, fontWeight: 600,
-                  }}>Yes, increase</button>
-                </div>
-              </div>
-            )}
-
-            {progConfirmed && justLogged.progTriggered && (
-              <div className="reveal" style={{
-                marginTop: 10, padding: '10px 14px',
-                background: 'var(--st-stable-bg)', borderRadius: 6,
-                fontSize: 13, color: 'var(--st-stable)', fontWeight: 600,
-                fontFamily: 'var(--font-mono)', letterSpacing: '0.04em',
-              }}>✓ Weight range updated for next session</div>
+            {justLogged.clusterMode && targetWeight(ex) != null && (
+              <NextTargetControl ex={ex} review={justLogged.review}
+                onSave={(v) => {
+                  const cur = targetWeight(ex);
+                  if (v > cur) onApplyIncrement(ex.id, { weightMin: v, weightMax: v });
+                  else if (v < cur) onUpdateEx(ex.id, { weightMin: v, weightMax: v });
+                }} />
             )}
 
             <button onClick={requestClose} className="tap" style={{
